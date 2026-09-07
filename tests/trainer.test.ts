@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { Chess } from 'chess.js';
+import { exercises,outcome,preservesGoal,applyUci,terminal,type TBMove } from '../lib/trainer.ts';
+const move=(category:string)=>({category,uci:'e6d6',san:'Kd6',dtz:0,checkmate:false}) as TBMove;
+test('move evaluations use the opponents perspective',()=>{assert.equal(preservesGoal(move('loss'),'win'),true);assert.equal(preservesGoal(move('win'),'win'),false);assert.equal(preservesGoal(move('draw'),'win'),false);assert.equal(preservesGoal(move('draw'),'draw'),true);assert.equal(preservesGoal(move('win'),'draw'),false);assert.equal(preservesGoal(move('loss'),'draw'),true)});
+test('50-move exceptions are drawn; uncertain categories fail closed',()=>{assert.equal(outcome('cursed-win'),0);assert.equal(outcome('blessed-loss'),0);for(const category of ['unknown','maybe-win','maybe-loss','syzygy-win','syzygy-loss']){assert.equal(outcome(category),null);assert.equal(preservesGoal(move(category),'draw'),false)}});
+test('all curated exercises are playable legal 3-piece positions',()=>{for(const e of exercises){const c=new Chess(e.fen);assert.equal(c.board().flat().filter(Boolean).length,3);assert.equal(c.isGameOver(),false,e.id);assert.ok(c.moves().length)}});
+test('checkmate and stalemate have different training outcomes',()=>{const c=new Chess(exercises[2].fen);applyUci(c,'g1g7');assert.equal(c.isCheckmate(),true);assert.equal(terminal(c,'w','win')?.success,true);assert.equal(terminal(c,'b','draw')?.success,false);const stale=new Chess('k7/P7/1K6/8/8/8/8/8 b - - 0 1');assert.equal(terminal(stale,'b','draw')?.success,true);assert.equal(terminal(stale,'w','win')?.success,false)});
+test('promotion handles all four piece choices',()=>{for(const p of ['q','r','b','n']){const c=new Chess('7k/P7/8/8/8/8/8/7K w - - 0 1');applyUci(c,'a7a8'+p);assert.equal(c.get('a8')?.type,p)}});
+test('repetition history and 50-move draw are respected',()=>{const c=new Chess('7k/8/8/8/8/8/R7/K7 w - - 0 1');for(let i=0;i<2;i++)for(const m of ['a2b2','h8g8','b2a2','g8h8'])applyUci(c,m);assert.equal(c.isThreefoldRepetition(),true);assert.equal(terminal(c,'b','draw')?.success,true);assert.equal(terminal(c,'w','win')?.success,false);const fifty=new Chess('7k/8/8/8/8/8/R7/K7 w - - 100 51');assert.equal(terminal(fifty,'b','draw')?.success,true)});
