@@ -1,0 +1,17 @@
+/* Fixed SVG images replace every platform-dependent chess glyph. */
+.piece-image{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none;text-shadow:none}
+.square>span{width:86%;height:86%;font-size:inherit;text-shadow:none}
+.floating-piece .piece-image,.animated-piece .piece-image{width:86%;height:86%}
+.promotion-options span{display:block;width:48px;height:48px;margin:auto}
+.avatar .piece-image{width:32px;height:32px}.brand>.piece-image{width:32px;height:32px}
+.board-tools{flex-wrap:wrap}.board-tools>span{white-space:nowrap}
+.tactic-settings{border-top:1px solid var(--line);padding:12px 0;font-size:12px}
+.tactic-settings label{display:flex;gap:8px;align-items:center}.tactic-settings input{width:16px;height:16px}
+.tactic-annotations{z-index:3}.tactic-description{line-height:1.8;min-height:1.8em;color:#654276}
+.study-panel select,.study-actions button{border:1px solid var(--line);border-radius:6px;padding:8px;background:#fff;color:var(--ink);font:inherit}
+.study-panel textarea{width:100%;min-height:100px;resize:vertical;margin:12px 0;border:1px solid var(--line);border-radius:6px;padding:10px;background:#fbfcf9;color:var(--ink);font:12px monospace;overflow-wrap:anywhere}
+.study-panel textarea:focus-visible{outline:3px solid #d6a347;outline-offset:2px}
+.study-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.study-actions button{font-size:11px}
+.study-file{display:block;font-size:11px;margin:12px 0}.study-file input{display:block;max-width:100%;margin-top:8px}
+.study-panel [role=status]{font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+@media(prefers-reduced-motion:reduce){.animated-piece{animation:none}}
