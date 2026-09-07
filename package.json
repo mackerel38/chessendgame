@@ -10,7 +10,10 @@
     "build": "vinext build",
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "test": "node --experimental-strip-types --test tests/trainer.test.ts"
+    "test": "node --experimental-strip-types --test tests/trainer.test.ts",
+    "dev:pages": "vite --config vite.pages.config.ts",
+    "build:pages": "vite build --config vite.pages.config.ts",
+    "preview:pages": "vite preview --config vite.pages.config.ts"
   },
   "dependencies": {
     "chess.js": "^1.4.0",

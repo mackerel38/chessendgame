@@ -17,7 +17,23 @@ npx tsc --noEmit
 npm run build
 ```
 
-Node.js 22.13.0 以上が必要です。公開には Sites を利用します。
+Node.js 22.13.0 以上が必要です。GitHub Pages 向けの静的ビルドに対応しています。
+
+## GitHub Pages
+
+```sh
+npm run dev:pages
+npm run build:pages
+npm run preview:pages
+```
+
+`dist-pages/` にサーバー不要の静的ファイルを出力します。リポジトリの Settings → Pages → Source を GitHub Actions に設定すると、main への push で `.github/workflows/pages.yml` がテスト・ビルド・公開します。プロジェクトページのサブパスと独自ドメインは configure-pages の情報から自動で設定します。
+
+ローカルでサブパスを検証する場合は `PAGES_BASE_PATH=/chessendgame npm run build:pages` を使います。`PAGES_SITE_URL` に HTTPS の公開先 URL を指定すると SNS 用の画像 URL も埋め込みます。
+
+Pages 版はブラウザから Lichess API に直接問い合わせます。API の CORS 許可を確認済みで、API キーや独自のサーバーは不要です。
+
+既存の `npm run dev` / `npm run build` は Sites 版のために残しています。
 
 ## 対局の仕様
 
