@@ -50,7 +50,6 @@ export default function StudyTools({ game, onImport, disabled }: Props) {
       } catch (error) { if (fileTask.current === id) setMessage(messageOf(error)); }
     }} /></label>
     <div className="study-actions"><button disabled={disabled} onClick={() => share(false)}>棋譜のURLをコピー</button><button disabled={disabled} onClick={() => share(true)}>現在盤面のURL</button></div>
-    <p className="muted">FENは現在盤面のみ。PGN／棋譜URLは開始局面と着手履歴を保持します。URLにPGNのコメントや対局者名は含めません。</p>
-    <p role="status" aria-live="polite">{message}</p>
+    {message && <p role="status" aria-live="polite">{message}</p>}
   </section>;
 }
