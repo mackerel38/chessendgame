@@ -30,7 +30,7 @@ async function probe(fen: string, signal: AbortSignal) {
   if (cache.size >= 500) cache.delete(cache.keys().next().value!);
   cache.set(fen, data); return data;
 }
-type Entry = { san: string; player: boolean; quality: string };
+type Entry = { san: string; player: boolean; quality: string; color?: 'w' | 'b' };
 export default function Home() {
   const [problem, setProblem] = useState<Problem | null>(null), [fen, setFen] = useState(EMPTY), [count, setCount] = useState(4), [filter, setFilter] = useState<'any' | 'win' | 'draw'>('any');
   const [phase, setPhase] = useState<'generating' | 'ready' | 'thinking' | 'replay' | 'done' | 'error' | 'review'>('generating'), [attempt, setAttempt] = useState(0), [error, setError] = useState(''), [feedback, setFeedback] = useState('');
@@ -56,7 +56,7 @@ export default function Home() {
   }
   function updateHistory(c: Chess, quality = '') {
     const side = initial.current.split(' ')[1];
-    setHistory(c.history({ verbose: true }).map(m => ({ san: m.san, player: m.color === side, quality })));
+    setHistory(c.history({ verbose: true }).map(m => ({ san: m.san, player: m.color === side, color: m.color, quality })));
     setPreviousFen(c.history({ verbose: true }).at(-1)?.before || '');
   }
   function loadStudy(loaded: ImportedGame) {
@@ -114,9 +114,9 @@ export default function Home() {
       if (endGame(c, p)) return;
       let tb = known || await probe(c.fen(), signal); if (signal.aborted) return;
       if (c.turn() !== p.fen.split(' ')[1]) {
-        const best = tb.moves[0]; if (!best || outcome(best.category) === null) throw new Error('最善応手を確認できません。');
+        const replyColor = c.turn(), best = tb.moves[0]; if (!best || outcome(best.category) === null) throw new Error('最善応手を確認できません。');
         moveInstantly(c, best.uci, signal); if (signal.aborted) return;
-        setHistory(h => [...h, { san: best.san, player: false, quality: '最善応手' }]);
+        setHistory(h => [...h, { san: best.san, player: false, color: replyColor, quality: '' }]);
         if (endGame(c, p)) return;
         tb = await probe(c.fen(), signal);
       }
@@ -212,7 +212,7 @@ export default function Home() {
     const signal = controller.current.signal; setPhase('thinking'); setData(null);
     try {
       moveInstantly(game.current, move.uci, signal); if (signal.aborted) return;
-      setHistory(h => [...h, { san: move.san, player: true, quality: '✓' }]); setFeedback(p.goal === 'win' ? '勝ちを維持' : '引き分けを維持');
+      setHistory(h => [...h, { san: move.san, player: true, color: player, quality: '' }]); setFeedback(p.goal === 'win' ? '勝ちを維持' : '引き分けを維持');
       await sync(game.current, p, signal);
     } catch (e) { report(e, signal); }
   }
@@ -262,24 +262,29 @@ export default function Home() {
   }
   function retry() { const p = current.current; if (p && failureAction.current === 'sync') void sync(game.current, p, cancel()); else void generate(); }
   const legal = data?.moves.filter(m => m.uci.slice(0, 2) === selected).map(m => m.uci.slice(2, 4)) || [];
+  const notationRows = Array.from({ length: Math.ceil(history.length / 2) }, (_, row) => {
+    const entries = history.slice(row * 2, row * 2 + 2);
+    const white = entries.find(entry => entry.color === 'w' || (entry.color === undefined && entry.player === (player === 'w')));
+    const black = entries.find(entry => entry.color === 'b' || (entry.color === undefined && entry.player === (player === 'b')));
+    return { number: row + 1, white, black };
+  });
   return <main><header><a className="brand" href="./"><Piece code="bp" /><span>ENDGAME<span className="brand-light"> / 終盤道場</span></span></a><span className="header-note">最後の数駒から、強くなる。</span><button className="status-pill" onClick={() => setHelp(true)}>操作ガイド ↗</button></header>
     <div className="workspace"><section className="heading"><div><p className="eyebrow">CHESS ENDGAME TRAINER</p><h1>最後の一手まで、最善を。</h1><p className="muted">3〜7駒のランダム局面。勝ちをつかむ、引き分けを守る。</p></div><span className="lesson-number">{solved}<small> SOLVED</small></span></section>
       <div className="play-layout"><section><div className="player-line"><span className="avatar"><Piece code={player === 'w' ? 'bk' : 'wk'} /></span><div><strong>テーブルベース</strong><small>最善応手</small></div><span className="player-color">{player === 'w' ? '黒' : '白'}</span></div>
         <Board key={serial} fen={fen} blackBottom={blackBottom} disabled={phase !== 'ready'} selected={selected} legal={phase === 'ready' ? legal : []} hint={hint} animation={animation} tactics={tactics} moveMark={moveMark} onSquare={clickSquare} onMove={moveFrom} onSelect={s => { if (game.current.get(s as Parameters<Chess['get']>[0])?.color === player) setSelected(s); }} />
         <div className="player-line"><span className="avatar white-avatar"><Piece code={player + 'k'} /></span><div><strong>あなた / {player === 'w' ? '白' : '黒'}</strong><small>{phase === 'review' ? '棋譜・盤面を閲覧中（自動応手なし）' : phase === 'replay' ? (replayMode === 'answer' ? '答えの最善進行を再生中' : '失敗手の最善進行を再生中') : phase === 'ready' ? '駒をドラッグ、またはクリックして移動' : phase === 'generating' ? `局面を生成中 · ${attempt} 局面を照合` : phase === 'done' ? '練習終了' : phase === 'error' ? '接続待ち' : '最善応手を確認中'}</small></div><span className="your-turn">● {phase === 'ready' ? 'YOUR TURN' : phase === 'replay' ? 'REPLAY' : phase === 'review' ? 'REVIEW' : phase === 'done' ? 'FINISHED' : 'WAIT'}</span></div>
         <div className="board-tools"><button onClick={() => restart()} disabled={phase === 'generating' || (!problem && !reviewing.current)}>↶ 最初から</button><button onClick={rewind} disabled={phase === 'generating' || (!history.length && phase !== 'replay')}>← 戻る</button><button onClick={advance} disabled={phase === 'generating' || !redoStack.current.length}>進む →</button><button onClick={() => setFlipped(v => !v)} disabled={!!animation}>⇅ 盤面を反転</button><span>{history.filter(h => h.player).length} 手 / ミス {mistakes} 回</span></div>
-        <div className="tactic-settings"><label><input type="checkbox" checked={showTactics} onChange={e => { setShowTactics(e.target.checked); try { localStorage.setItem('endgame-show-tactics', String(e.target.checked)); } catch {} }} />戦術の自動矢印を表示</label>{showTactics && <><p className="tactic-description" role="status">{tactics?.labels.join(' / ') || '現在の局面に表示対象の戦術はありません。'}</p><p className="muted">赤：チェック／メイト　青：ステイルメイトの逃げ道　黄：フォーク　紫点線：ディスカバードアタック。利きの可視化であり、駒得や勝ちを保証するものではありません。</p></>}</div>
+        <div className="tactic-settings"><label><input type="checkbox" checked={showTactics} onChange={e => { setShowTactics(e.target.checked); try { localStorage.setItem('endgame-show-tactics', String(e.target.checked)); } catch {} }} />戦術の自動矢印を表示</label>{showTactics && <>{tactics?.labels.length ? <p className="tactic-description" role="status">{tactics.labels.join(' / ')}</p> : null}<p className="muted">赤の矢印：チェック／メイト　青：ステイルメイトの逃げ道　黄：フォーク　紫点線：ディスカバードアタック。矢印はその局面での利きや攻撃先を示します。駒得や勝ちを保証するものではありません。</p></>}<div className="piece-settings"><label>駒セット<select value={pieceSet} onChange={e => { const next = e.target.value as PieceSet; setCurrentPieceSet(next); setPieceSet(next); }}>{PIECE_SETS.map(option => <option key={option.id} value={option.id}>{option.label} · {option.source}</option>)}</select></label><p>盤面・再生・昇格で同じ画像を使います。</p></div></div>
         <div className={`feedback ${phase === 'replay' ? 'bad' : ''}`} role="status" aria-live="polite">{error ? <><span>{error}</span><button onClick={retry}>再試行</button></> : feedback || '右ドラッグで矢印、右クリックでマーク。左操作で手動注釈をクリア。'}</div>
       </section><aside><section className="panel"><div className="panel-top"><p className="eyebrow">POSITION GENERATOR</p><span className="tag">{problem?.pieces || count} 駒</span></div><h2>ランダム終盤</h2>
           <div className="generator-controls"><label>駒数（キングを含む）<select value={count} onChange={e => setCount(Number(e.target.value))}>{[3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n} 駒</option>)}</select></label><label>目標<select value={filter} onChange={e => setFilter(e.target.value as typeof filter)}><option value="any">どちらでも</option><option value="win">勝ち</option><option value="draw">引き分け</option></select></label></div>
-          <div className="piece-settings"><label>駒セット<select value={pieceSet} onChange={e => { const next = e.target.value as PieceSet; setCurrentPieceSet(next); setPieceSet(next); }}>{PIECE_SETS.map(option => <option key={option.id} value={option.id}>{option.label} · {option.source}</option>)}</select></label><p>盤面・再生・昇格で同じ画像を使います。</p></div>
           <button className="primary" onClick={() => void generate()}>新しい局面を生成 <span>↻</span></button>{phase === 'generating' && <p className="verified">{attempt} 局面目を照合中 · もう一度押すと生成を再開</p>}
           <div className="auto-next-setting"><label><input type="checkbox" checked={autoNext} onChange={e => { const enabled = e.target.checked; setAutoNext(enabled); try { localStorage.setItem('endgame-auto-next', String(enabled)); } catch {} }} /> 自動で次の問題に進む</label><small>{autoNext ? 'クリアから3秒後に次の局面を開始' : 'クリア後は最終盤面で停止'}</small></div>
           {phase === 'review' && <button className="hint-button" onClick={() => void trainPosition()}>この盤面を練習（3〜7駒）</button>}
           {problem && <div className={`objective ${problem.goal === 'draw' ? 'draw-objective' : ''}`}><span>{problem.goal === 'win' ? '↗' : '='}</span><div><small>現在の目標</small><strong>{problem.goal === 'win' ? '勝つ' : '引き分けを守る'}</strong></div><span className="tag">{problem.goal.toUpperCase()}</span></div>}
           <button className="hint-button" disabled={phase !== 'ready'} onClick={() => { const best = data?.moves.find(m => problem && preservesGoal(m, problem.goal)); if (best) { setHint(best.uci); setSelected(best.uci.slice(0, 2)); } }}>{hint ? `${hint.slice(0, 2)} → ${hint.slice(2, 4)}${hint[4] ? ' = ' + names[hint[4]] : ''}` : '✧ 最善手のヒント'}</button><button className="hint-button" disabled={phase !== 'ready'} onClick={() => { const best = data?.moves.find(m => problem && preservesGoal(m, problem.goal)); if (best && problem && data && !locked.current) void replay(best, problem, data, true); }}>▶ 答えを最後まで再生</button><p className="verified">{problem ? '✓ テーブルベースで検証した局面' : reviewing.current ? '閲覧モード：評価は未取得' : '局面を検証しています'}</p></section>
         {phase === 'replay' && <section className="panel replay-panel"><p className="eyebrow">{replayMode === 'answer' ? 'ANSWER REPLAY' : 'MISTAKE REPLAY'}</p><h2>{replayStatus}</h2><p className="muted">双方が最善手を指した続き · {replayLine.length} ply</p><div className="replay-controls"><button onClick={() => { pauseRef.current = !pauseRef.current; setPaused(pauseRef.current); }}>{paused ? '▶ 再開' : 'Ⅱ 一時停止'}</button><select aria-label="再生速度" value={speed} onChange={e => { speedRef.current = Number(e.target.value); setSpeed(Number(e.target.value)); }}><option value={1200}>ゆっくり</option><option value={800}>標準</option><option value={300}>速い</option></select></div><p className="replay-san">{replayLine.join('　')}</p><button className="hint-button" onClick={() => restoreReplay('再生を打ち切り、元の局面に戻りました。')}>再生を終了して戻る ↶</button></section>}
-        <section className="panel moves-panel"><div className="panel-top"><p className="eyebrow">棋譜</p><span className="subtle">{history.length} ply</span></div>{history.length ? <ol className="move-list">{history.map((h, i) => <li key={i}><span>{i + 1}.</span><span>{h.player ? 'あなた' : '相手'}</span><strong>{h.san}</strong><small>{h.quality}</small></li>)}</ol> : <div className="empty-moves">指した手がここに表示されます。</div>}</section>
+        <section className="panel moves-panel"><div className="panel-top"><p className="eyebrow">棋譜</p><span className="subtle">{history.length} ply</span></div><div className="move-head"><span></span><span>白</span><span>黒</span></div>{history.length ? <ol className="move-list">{notationRows.map(row => <li key={row.number}><span className="move-number">{row.number}.</span><span className="move-cell">{row.white?.san || ''}</span><span className="move-cell">{row.black?.san || ''}</span></li>)}</ol> : <div className="empty-moves">指した手がここに表示されます。</div>}</section>
         <StudyTools game={game.current} onImport={loadStudy} disabled={phase === 'replay'} />
         <p className="muted">{solved} 局面クリア · この端末に保存</p><details className="fen-details"><summary>現在の局面 FEN</summary><code>{fen}</code></details>
       </aside></div><footer><span>ENDGAME / 終盤道場</span><a href="https://github.com/lichess-org/lila-tablebase" target="_blank" rel="noreferrer">Lichess · Syzygy tablebases ↗</a></footer></div>
