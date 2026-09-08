@@ -16,3 +16,4 @@
 .study-panel [role=status]{font-size:12px;line-height:1.7;overflow-wrap:anywhere}
 @media(prefers-reduced-motion:reduce){.animated-piece{animation:none}}
 .piece-settings{border-top:1px solid var(--line);margin-top:18px;padding-top:16px}.piece-settings label{font-size:10px;color:#819077}.piece-settings select{display:block;width:100%;margin-top:8px;background:#f7f8f3;border:1px solid var(--line);border-radius:6px;padding:11px 8px;color:var(--ink);font:inherit;font-size:12px}.piece-settings p{font-size:10px;color:#98a08f;margin:8px 0 0}
+.auto-next-setting{border-top:1px solid var(--line);margin-top:16px;padding-top:14px;color:var(--ink);font-size:12px}.auto-next-setting label{display:flex;gap:8px;align-items:center}.auto-next-setting input{width:16px;height:16px}.auto-next-setting small{display:block;color:#98a08f;font-size:10px;margin:7px 0 0 24px}

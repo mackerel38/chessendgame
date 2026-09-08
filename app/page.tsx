@@ -39,6 +39,7 @@ export default function Home() {
   const [previousFen, setPreviousFen] = useState(''), [showTactics, setShowTactics] = useState(true);
   const [moveMark, setMoveMark] = useState<MoveMark | null>(null);
   const [pieceSet, setCurrentPieceSet] = useState<PieceSet>('cburnett');
+  const [autoNext, setAutoNext] = useState(false), [autoNextReady, setAutoNextReady] = useState(false);
   const game = useRef(new Chess(EMPTY)), current = useRef<Problem | null>(null), controller = useRef(new AbortController()), animationId = useRef(0), locked = useRef(true), pauseRef = useRef(false), speedRef = useRef(800), replaying = useRef(false), beforeReplay = useRef<Tablebase | null>(null), failureAction = useRef<'generate' | 'sync'>('generate'), redoStack = useRef<string[][]>([]);
   const initial = useRef(EMPTY), reviewing = useRef(false), credited = useRef(false);
   const player = (problem?.fen.split(' ')[1] || initial.current.split(' ')[1]) as 'w' | 'b';
@@ -88,7 +89,7 @@ export default function Home() {
   function endGame(c: Chess, p: Problem) {
     if (repetitionRestart(c, p.fen)) { restart('同一局面が3回現れたため、この問題の最初の盤面に戻りました。'); return true; }
     const end = terminal(c, p.fen.split(' ')[1] as 'w' | 'b', p.goal); if (!end) return false;
-    setPhase('done'); setFeedback(end.text); setData(null); locked.current = true;
+    setPhase('done'); setFeedback(end.text); setData(null); locked.current = true; if (end.success) setAutoNextReady(true);
     if (end.success && !credited.current) {
       credited.current = true;
       setSolved(v => { const n = v + 1; try { localStorage.setItem('endgame-generated-solved', String(n)); } catch {} return n; });
@@ -124,7 +125,7 @@ export default function Home() {
     } catch (e) { report(e, signal); }
   }
   async function generate() {
-    const signal = cancel(); failureAction.current = 'generate'; setFen(game.current.fen()); locked.current = true;
+    const signal = cancel(); failureAction.current = 'generate'; setAutoNextReady(false); setFen(game.current.fen()); locked.current = true;
     setPhase('generating'); setError(''); setFeedback(''); setData(null); setReplayLine([]); setAttempt(0);
     try {
       for (let i = 1; i <= 60; i++) {
@@ -142,6 +143,7 @@ export default function Home() {
       const n = Number(localStorage.getItem('endgame-generated-solved')); if (Number.isSafeInteger(n) && n >= 0) setSolved(n);
       setShowTactics(localStorage.getItem('endgame-show-tactics') !== 'false');
       setCurrentPieceSet(getPieceSet());
+      setAutoNext(localStorage.getItem('endgame-auto-next') === 'true');
     } catch {}
     const readUrl = () => {
       try { const shared = readSharedGame(window.location.href); if (shared) { loadStudy(shared); return true; } }
@@ -154,6 +156,11 @@ export default function Home() {
     // Initial generation only; controls apply when the generate button is pressed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    if (phase !== 'done' || !autoNext || !autoNextReady) return;
+    const timer = window.setTimeout(() => { setAutoNextReady(false); void generate(); }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [phase, autoNext, autoNextReady]);
   function restoreReplay(message = '元の局面に戻りました。別の手を試してください。') {
     if (!replaying.current) return;
     cancel(); setFen(game.current.fen()); setPreviousFen(game.current.history({ verbose: true }).at(-1)?.before || '');
@@ -222,7 +229,7 @@ export default function Home() {
   }
   function restart(message = '') {
     const p = current.current; if (!p && !reviewing.current) return;
-    const signal = cancel(); game.current = new Chess(initial.current); redoStack.current = []; setFen(initial.current); setPreviousFen('');
+    const signal = cancel(); game.current = new Chess(initial.current); redoStack.current = []; setAutoNextReady(false); setFen(initial.current); setPreviousFen('');
     setHistory([]); setMistakes(0); setFeedback(message); setError(''); setReplayLine([]); setData(null); setSerial(n => n + 1);
     if (p) void sync(game.current, p, signal); else { setPhase('review'); locked.current = true; }
   }
@@ -267,6 +274,7 @@ export default function Home() {
           <div className="generator-controls"><label>駒数（キングを含む）<select value={count} onChange={e => setCount(Number(e.target.value))}>{[3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n} 駒</option>)}</select></label><label>目標<select value={filter} onChange={e => setFilter(e.target.value as typeof filter)}><option value="any">どちらでも</option><option value="win">勝ち</option><option value="draw">引き分け</option></select></label></div>
           <div className="piece-settings"><label>駒セット<select value={pieceSet} onChange={e => { const next = e.target.value as PieceSet; setCurrentPieceSet(next); setPieceSet(next); }}>{PIECE_SETS.map(option => <option key={option.id} value={option.id}>{option.label} · {option.source}</option>)}</select></label><p>盤面・再生・昇格で同じ画像を使います。</p></div>
           <button className="primary" onClick={() => void generate()}>新しい局面を生成 <span>↻</span></button>{phase === 'generating' && <p className="verified">{attempt} 局面目を照合中 · もう一度押すと生成を再開</p>}
+          <div className="auto-next-setting"><label><input type="checkbox" checked={autoNext} onChange={e => { const enabled = e.target.checked; setAutoNext(enabled); try { localStorage.setItem('endgame-auto-next', String(enabled)); } catch {} }} /> 自動で次の問題に進む</label><small>{autoNext ? 'クリアから3秒後に次の局面を開始' : 'クリア後は最終盤面で停止'}</small></div>
           {phase === 'review' && <button className="hint-button" onClick={() => void trainPosition()}>この盤面を練習（3〜7駒）</button>}
           {problem && <div className={`objective ${problem.goal === 'draw' ? 'draw-objective' : ''}`}><span>{problem.goal === 'win' ? '↗' : '='}</span><div><small>現在の目標</small><strong>{problem.goal === 'win' ? '勝つ' : '引き分けを守る'}</strong></div><span className="tag">{problem.goal.toUpperCase()}</span></div>}
           <button className="hint-button" disabled={phase !== 'ready'} onClick={() => { const best = data?.moves.find(m => problem && preservesGoal(m, problem.goal)); if (best) { setHint(best.uci); setSelected(best.uci.slice(0, 2)); } }}>{hint ? `${hint.slice(0, 2)} → ${hint.slice(2, 4)}${hint[4] ? ' = ' + names[hint[4]] : ''}` : '✧ 最善手のヒント'}</button><button className="hint-button" disabled={phase !== 'ready'} onClick={() => { const best = data?.moves.find(m => problem && preservesGoal(m, problem.goal)); if (best && problem && data && !locked.current) void replay(best, problem, data, true); }}>▶ 答えを最後まで再生</button><p className="verified">{problem ? '✓ テーブルベースで検証した局面' : reviewing.current ? '閲覧モード：評価は未取得' : '局面を検証しています'}</p></section>
