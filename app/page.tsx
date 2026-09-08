@@ -31,6 +31,7 @@ async function probe(fen: string, signal: AbortSignal) {
   cache.set(fen, data); return data;
 }
 type Entry = { san: string; player: boolean; quality: string; color?: 'w' | 'b' };
+type PreparedProblem = { problem: Problem; data: Tablebase; count: number; filter: 'any' | 'win' | 'draw' };
 export default function Home() {
   const [problem, setProblem] = useState<Problem | null>(null), [fen, setFen] = useState(EMPTY), [count, setCount] = useState(4), [filter, setFilter] = useState<'any' | 'win' | 'draw'>('any');
   const [phase, setPhase] = useState<'generating' | 'ready' | 'thinking' | 'replay' | 'done' | 'error' | 'review'>('generating'), [attempt, setAttempt] = useState(0), [error, setError] = useState(''), [feedback, setFeedback] = useState('');
@@ -41,7 +42,7 @@ export default function Home() {
   const [pieceSet, setCurrentPieceSet] = useState<PieceSet>('cburnett');
   const [autoNext, setAutoNext] = useState(false), [autoNextReady, setAutoNextReady] = useState(false);
   const game = useRef(new Chess(EMPTY)), current = useRef<Problem | null>(null), controller = useRef(new AbortController()), animationId = useRef(0), locked = useRef(true), pauseRef = useRef(false), speedRef = useRef(800), replaying = useRef(false), beforeReplay = useRef<Tablebase | null>(null), failureAction = useRef<'generate' | 'sync'>('generate'), redoStack = useRef<string[][]>([]);
-  const initial = useRef(EMPTY), reviewing = useRef(false), credited = useRef(false);
+  const initial = useRef(EMPTY), reviewing = useRef(false), credited = useRef(false), prepared = useRef<PreparedProblem | null>(null), preparing = useRef<AbortController | null>(null);
   const player = (problem?.fen.split(' ')[1] || initial.current.split(' ')[1]) as 'w' | 'b';
   const blackBottom = (player === 'b') !== flipped;
   const tactics = useMemo(() => showTactics ? analyzeTactics(fen, previousFen || undefined) : null, [fen, previousFen, showTactics]);
@@ -124,10 +125,29 @@ export default function Home() {
       setData(tb); setPhase('ready'); locked.current = false;
     } catch (e) { report(e, signal); }
   }
+  async function prepareNext() {
+    if (preparing.current || prepared.current) return;
+    const task = new AbortController(); preparing.current = task;
+    try {
+      for (let i = 0; i < 60; i++) {
+        const candidate = randomPosition(count), tb = await probe(candidate, task.signal);
+        if (task.signal.aborted) return;
+        const next = acceptProblem(candidate, tb, filter);
+        if (next) { prepared.current = { problem: next, data: tb, count, filter }; return; }
+      }
+    } catch { /* Background preparation is optional and must not disturb the current exercise. */ }
+    finally { preparing.current = null; }
+  }
   async function generate() {
     const signal = cancel(); failureAction.current = 'generate'; setAutoNextReady(false); setFen(game.current.fen()); locked.current = true;
     setPhase('generating'); setError(''); setFeedback(''); setData(null); setReplayLine([]); setAttempt(0);
     try {
+      const ready = prepared.current;
+      if (ready && ready.count === count && ready.filter === filter) {
+        prepared.current = null;
+        current.current = ready.problem; initial.current = ready.problem.fen; game.current = new Chess(ready.problem.fen); reviewing.current = false; credited.current = false; redoStack.current = [];
+        setProblem(ready.problem); setFen(ready.problem.fen); setPreviousFen(''); setHistory([]); setMistakes(0); setFlipped(false); setSerial(n => n + 1); setData(ready.data); setPhase('ready'); locked.current = false; return;
+      }
       for (let i = 1; i <= 60; i++) {
         setAttempt(i); const candidate = randomPosition(count); const tb = await probe(candidate, signal); if (signal.aborted) return;
         const p = acceptProblem(candidate, tb, filter); if (!p) { await delay(200, signal); continue; }
@@ -156,6 +176,10 @@ export default function Home() {
     // Initial generation only; controls apply when the generate button is pressed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    if (phase === 'ready' && problem) void prepareNext();
+    return () => { preparing.current?.abort(); preparing.current = null; };
+  }, [phase, problem?.fen, count, filter]);
   useEffect(() => {
     if (phase !== 'done' || !autoNext || !autoNextReady) return;
     const timer = window.setTimeout(() => { setAutoNextReady(false); void generate(); }, 3000);
