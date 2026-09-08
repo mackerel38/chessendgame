@@ -205,7 +205,7 @@ export default function Home() {
         await delay(speedRef.current, signal); const next = await probe(c.fen(), signal); if (signal.aborted) return;
         while (pauseRef.current) await delay(100, signal);
         const best = next.moves[0]; if (!best || outcome(best.category) === null) throw new Error('続きの最善手を確認できませんでした。');
-        await animate(c, best.uci, signal); setReplayLine(line => [...line, best.san]); plies++;
+        setMoveMark(null); await animate(c, best.uci, signal); setReplayLine(line => [...line, best.san]); plies++;
       }
       if (signal.aborted) return;
       if (p.goal === 'win' && repetitionRestart(c, p.fen)) { restart('同一局面が3回現れたため。'); return; }
