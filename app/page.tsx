@@ -87,7 +87,7 @@ export default function Home() {
     }
   }
   function endGame(c: Chess, p: Problem) {
-    if (repetitionRestart(c, p.fen)) { restart('同一局面が3回現れたため、この問題の最初の盤面に戻りました。'); return true; }
+    if (repetitionRestart(c, p.fen)) { restart('同一局面が3回現れたため。'); return true; }
     const end = terminal(c, p.fen.split(' ')[1] as 'w' | 'b', p.goal); if (!end) return false;
     setPhase('done'); setFeedback(end.text); setData(null); locked.current = true; if (end.success) setAutoNextReady(true);
     if (end.success && !credited.current) {
@@ -183,7 +183,7 @@ export default function Home() {
         await animate(c, best.uci, signal); setReplayLine(line => [...line, best.san]); plies++;
       }
       if (signal.aborted) return;
-      if (repetitionRestart(c, p.fen)) { restart('再生中に同一局面が3回現れたため、この問題の最初の盤面に戻りました。'); return; }
+      if (repetitionRestart(c, p.fen)) { restart('同一局面が3回現れたため。'); return; }
       const end = terminal(c, player, p.goal);
       if (answer && end) {
         replaying.current = false; game.current = c; updateHistory(c, '解答'); setPhase('done'); setData(null);
@@ -200,8 +200,15 @@ export default function Home() {
     if (outcome(move.category) === null) { setFeedback('この手の厳密な評価を確認できません。'); return; }
     locked.current = true; setSelected(''); setHint(''); setPromotion([]);
     const trial = cloneGame(game.current, p.fen); applyUci(trial, move.uci);
-    // Repetition is a reset, not a failed-move replay or a solved exercise.
-    if (repetitionRestart(trial, p.fen)) { restart('同一局面が3回現れたため、この問題の最初の盤面に戻りました。'); return; }
+    // Repetition is marked as a dubious move, then reset after a short pause.
+    if (repetitionRestart(trial, p.fen)) {
+      const signal = controller.current.signal;
+      setMoveMark({ from: move.uci.slice(0, 2), to: move.uci.slice(2, 4), kind: '?' });
+      setFeedback('同一局面が3回現れたため。'); setPhase('thinking');
+      try { await delay(3000, signal); if (!signal.aborted) restart('同一局面が3回現れたため。'); }
+      catch (e) { if (!signal.aborted) report(e, signal); }
+      return;
+    }
     const end = terminal(trial, player, p.goal);
     if (!preservesGoal(move, p.goal) || (end && !end.success)) {
       const kind: MoveMark['kind'] = outcome(move.category) === 0 ? '?' : '??';
