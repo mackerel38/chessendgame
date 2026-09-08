@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import Board, { names, type Animation } from '../components/Board';
-import Piece from '../components/Piece';
+import Piece, { getPieceSet, setPieceSet } from '../components/Piece';
+import { PIECE_SETS, type PieceSet } from '../lib/pieces';
 import StudyTools from '../components/StudyTools';
 import { cloneGame, applyUci, outcome, preservesGoal, terminal, type Tablebase, type TBMove } from '../lib/trainer';
 import { randomPosition, acceptProblem, type Problem } from '../lib/generator';
@@ -36,6 +37,7 @@ export default function Home() {
   const [selected, setSelected] = useState(''), [data, setData] = useState<Tablebase | null>(null), [history, setHistory] = useState<Entry[]>([]), [promotion, setPromotion] = useState<TBMove[]>([]), [hint, setHint] = useState(''), [flipped, setFlipped] = useState(false), [mistakes, setMistakes] = useState(0), [solved, setSolved] = useState(0), [serial, setSerial] = useState(0);
   const [animation, setAnimation] = useState<Animation | null>(null), [replayLine, setReplayLine] = useState<string[]>([]), [replayStatus, setReplayStatus] = useState(''), [replayMode, setReplayMode] = useState<'mistake' | 'answer'>('mistake'), [paused, setPaused] = useState(false), [speed, setSpeed] = useState(800), [help, setHelp] = useState(false);
   const [previousFen, setPreviousFen] = useState(''), [showTactics, setShowTactics] = useState(true);
+  const [pieceSet, setCurrentPieceSet] = useState<PieceSet>('cburnett');
   const game = useRef(new Chess(EMPTY)), current = useRef<Problem | null>(null), controller = useRef(new AbortController()), animationId = useRef(0), locked = useRef(true), pauseRef = useRef(false), speedRef = useRef(800), replaying = useRef(false), beforeReplay = useRef<Tablebase | null>(null), failureAction = useRef<'generate' | 'sync'>('generate');
   const initial = useRef(EMPTY), reviewing = useRef(false), credited = useRef(false);
   const player = (problem?.fen.split(' ')[1] || initial.current.split(' ')[1]) as 'w' | 'b';
@@ -138,6 +140,7 @@ export default function Home() {
     try {
       const n = Number(localStorage.getItem('endgame-generated-solved')); if (Number.isSafeInteger(n) && n >= 0) setSolved(n);
       setShowTactics(localStorage.getItem('endgame-show-tactics') !== 'false');
+      setCurrentPieceSet(getPieceSet());
     } catch {}
     const readUrl = () => {
       try { const shared = readSharedGame(window.location.href); if (shared) { loadStudy(shared); return true; } }
@@ -240,6 +243,7 @@ export default function Home() {
         <div className={`feedback ${phase === 'replay' ? 'bad' : ''}`} role="status" aria-live="polite">{error ? <><span>{error}</span><button onClick={retry}>再試行</button></> : feedback || '右ドラッグで矢印、右クリックでマーク。左操作で手動注釈をクリア。'}</div>
       </section><aside><section className="panel"><div className="panel-top"><p className="eyebrow">POSITION GENERATOR</p><span className="tag">{problem?.pieces || count} 駒</span></div><h2>ランダム終盤</h2>
           <div className="generator-controls"><label>駒数（キングを含む）<select value={count} onChange={e => setCount(Number(e.target.value))}>{[3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n} 駒</option>)}</select></label><label>目標<select value={filter} onChange={e => setFilter(e.target.value as typeof filter)}><option value="any">どちらでも</option><option value="win">勝ち</option><option value="draw">引き分け</option></select></label></div>
+          <div className="piece-settings"><label>駒セット<select value={pieceSet} onChange={e => { const next = e.target.value as PieceSet; setCurrentPieceSet(next); setPieceSet(next); }}>{PIECE_SETS.map(option => <option key={option.id} value={option.id}>{option.label} · {option.source}</option>)}</select></label><p>盤面・再生・昇格で同じ画像を使います。</p></div>
           <button className="primary" onClick={() => void generate()}>新しい局面を生成 <span>↻</span></button>{phase === 'generating' && <p className="verified">{attempt} 局面目を照合中 · もう一度押すと生成を再開</p>}
           {phase === 'review' && <button className="hint-button" onClick={() => void trainPosition()}>この盤面を練習（3〜7駒）</button>}
           {problem && <div className={`objective ${problem.goal === 'draw' ? 'draw-objective' : ''}`}><span>{problem.goal === 'win' ? '↗' : '='}</span><div><small>現在の目標</small><strong>{problem.goal === 'win' ? '勝つ' : '引き分けを守る'}</strong></div><span className="tag">{problem.goal.toUpperCase()}</span></div>}

@@ -1,15 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { pieceImages } from '../lib/pieces.ts';
+import { PIECE_SETS, piecePath } from '../lib/pieces.ts';
 
-test('all twelve pieces are distinct self-contained SVG images, not font glyphs', () => {
-  assert.equal(Object.keys(pieceImages).length, 12);
-  assert.equal(new Set(Object.values(pieceImages)).size, 12);
-  for (const color of ['w', 'b']) for (const type of ['k', 'q', 'r', 'b', 'n', 'p']) {
-    const data = pieceImages[color + type];
-    assert.ok(data.startsWith('data:image/svg+xml,'));
-    const svg = decodeURIComponent(data.split(',')[1]);
-    assert.match(svg, /viewBox="0 0 64 64"/);
-    assert.doesNotMatch(svg, /<text|<script|<image|href=|[\u2654-\u265f]/);
+test('Cburnett and Neo each expose all twelve bundled image paths', () => {
+  assert.deepEqual(PIECE_SETS.map(set => set.id), ['cburnett', 'neo']);
+  for (const set of PIECE_SETS) for (const color of ['w', 'b']) for (const type of ['k', 'q', 'r', 'b', 'n', 'p']) {
+    const path = piecePath(set.id, color + type);
+    assert.match(path, new RegExp(`pieces/${set.id}/`));
+    assert.match(path, set.id === 'cburnett' ? /\.svg$/ : /\.png$/);
   }
 });
