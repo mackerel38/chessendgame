@@ -258,6 +258,14 @@ export default function Home() {
     if (data?.moves.some(m => m.uci.slice(0, 2) === selected && m.uci.slice(2, 4) === s)) { moveFrom(selected, s); return; }
     setSelected(game.current.get(s as Parameters<Chess['get']>[0])?.color === player ? s : '');
   }
+  function jumpToPly(ply: number) {
+    if (!ply || ply > history.length) return;
+    try {
+      const c = new Chess(initial.current);
+      history.slice(0, ply).forEach(entry => c.move(entry.san));
+      cancel(); game.current = c; current.current = null; reviewing.current = true; setProblem(null); setFen(c.fen()); setPreviousFen(c.history({ verbose: true }).at(-1)?.before || ''); setData(null); setFeedback(''); setPhase('review'); locked.current = true;
+    } catch { setFeedback('この手の盤面を表示できませんでした。'); }
+  }
   function restart(message = '') {
     const p = current.current; if (!p && !reviewing.current) return;
     const signal = cancel(); game.current = new Chess(initial.current); redoStack.current = []; setAutoNextReady(false); setFen(initial.current); setPreviousFen('');
@@ -315,7 +323,7 @@ export default function Home() {
           {problem && <div className={`objective ${problem.goal === 'draw' ? 'draw-objective' : ''}`}><span>{problem.goal === 'win' ? '↗' : '='}</span><div><small>現在の目標</small><strong>{problem.goal === 'win' ? '勝つ' : '引き分けを守る'}</strong></div><span className="tag">{problem.goal.toUpperCase()}</span></div>}
           <button className="hint-button" disabled={phase !== 'ready'} onClick={() => { const best = data?.moves.find(m => problem && preservesGoal(m, problem.goal)); if (best) { setHint(best.uci); setSelected(best.uci.slice(0, 2)); } }}>{hint ? `${hint.slice(0, 2)} → ${hint.slice(2, 4)}${hint[4] ? ' = ' + names[hint[4]] : ''}` : '✧ 最善手のヒント'}</button><button className="hint-button" disabled={phase !== 'ready'} onClick={() => { const best = data?.moves.find(m => problem && preservesGoal(m, problem.goal)); if (best && problem && data && !locked.current) void replay(best, problem, data, true); }}>▶ 答えを最後まで再生</button>{!problem && <p className="verified">{reviewing.current ? '閲覧モード：評価は未取得' : '局面を検証しています'}</p>}</section>
         {phase === 'replay' && <section className="panel replay-panel"><p className="eyebrow">{replayMode === 'answer' ? 'ANSWER REPLAY' : 'MISTAKE REPLAY'}</p><h2>{replayStatus}</h2><p className="muted">双方が最善手を指した続き · {replayLine.length} ply</p><div className="replay-controls"><button onClick={() => { pauseRef.current = !pauseRef.current; setPaused(pauseRef.current); }}>{paused ? '▶ 再開' : 'Ⅱ 一時停止'}</button><select aria-label="再生速度" value={speed} onChange={e => { speedRef.current = Number(e.target.value); setSpeed(Number(e.target.value)); }}><option value={1200}>ゆっくり</option><option value={800}>標準</option><option value={300}>速い</option></select></div><p className="replay-san">{replayLine.join('　')}</p><button className="hint-button" onClick={() => restoreReplay('再生を打ち切り、元の局面に戻りました。')}>再生を終了して戻る ↶</button></section>}
-        <section className="panel moves-panel"><div className="panel-top"><p className="eyebrow">棋譜</p><span className="subtle">{history.length} ply</span></div>{history.length ? <><div className="move-head"><span></span><span>白</span><span>黒</span></div><ol className="move-list">{notationRows.map(row => <li key={row.number}><span className="move-number">{row.number}.</span><span className="move-cell">{row.white?.san || ''}</span><span className="move-cell">{row.black?.san || ''}</span></li>)}</ol></> : null}</section>
+        <section className="panel moves-panel"><div className="panel-top"><p className="eyebrow">棋譜</p><span className="subtle">{history.length} ply</span></div>{history.length ? <><div className="move-head"><span></span><span>白</span><span>黒</span></div><ol className="move-list">{notationRows.map(row => <li key={row.number}><span className="move-number">{row.number}.</span>{row.white ? <button className="move-cell" onClick={() => jumpToPly(history.indexOf(row.white) + 1)}>{row.white.san}</button> : <span className="move-cell" />}{row.black ? <button className="move-cell" onClick={() => jumpToPly(history.indexOf(row.black) + 1)}>{row.black.san}</button> : <span className="move-cell" />}</li>)}</ol></> : null}</section>
         <StudyTools game={game.current} onImport={loadStudy} disabled={phase === 'replay'} />
         <p className="muted">{solved} 局面クリア · この端末に保存</p><details className="fen-details"><summary>現在の局面 FEN</summary><code>{fen}</code></details>
       </aside></div><footer><span>ENDGAME / 終盤道場</span><a href="https://github.com/lichess-org/lila-tablebase" target="_blank" rel="noreferrer">Lichess · Syzygy tablebases ↗</a></footer></div>
