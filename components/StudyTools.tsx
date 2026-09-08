@@ -31,7 +31,7 @@ export default function StudyTools({ game, onImport, disabled }: Props) {
     catch (e) { setMessage(messageOf(e)); }
   }
   return <section className="panel study-panel" aria-label="棋譜・盤面の入出力">
-    <p className="eyebrow">IMPORT / EXPORT / SHARE</p><h2>棋譜・盤面の入出力</h2>
+    <p className="eyebrow">IMPORT / EXPORT / SHARE</p>
     <label>形式 <select value={format} onChange={e => setFormat(e.target.value as 'fen' | 'pgn')}><option value="fen">FEN（盤面）</option><option value="pgn">PGN（棋譜）</option></select></label>
     <textarea aria-label="FEN・PGN・共有URLのテキスト" value={text} maxLength={MAX_IMPORT_LENGTH} spellCheck={false} onChange={e => { fileTask.current++; setText(e.target.value); }} placeholder={format === 'fen' ? 'FENを貼り付け' : 'PGNを貼り付け'} />
     <div className="study-actions">
