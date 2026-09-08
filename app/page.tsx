@@ -243,7 +243,7 @@ export default function Home() {
     const signal = controller.current.signal; setPhase('thinking'); setData(null);
     try {
       moveInstantly(game.current, move.uci, signal); if (signal.aborted) return;
-      setHistory(h => [...h, { san: move.san, player: true, color: player, quality: '' }]); setFeedback(p.goal === 'win' ? '勝ちを維持' : '引き分けを維持');
+      setHistory(h => [...h, { san: move.san, player: true, color: player, quality: '' }]); setFeedback('');
       await sync(game.current, p, signal);
     } catch (e) { report(e, signal); }
   }
