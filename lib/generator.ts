@@ -9,7 +9,7 @@ export function randomPosition(count:number,random:()=>number=Math.random):strin
   const put=(type:PieceSymbol,color:Color)=>{const valid=squares.filter(s=>type!=='p'||(s[1]!=='1'&&s[1]!=='8'));const square=valid[pick(valid.length)];squares.splice(squares.indexOf(square),1);chess.put({type,color},square);};
   put('k','w');put('k','b');
   for(let i=2;i<count;i++)put(['p','p','r','q','b','n'][pick(6)] as PieceSymbol,pick(2)?'w':'b');
-  const fen=chess.fen().split(' ');fen[1]=pick(2)?'w':'b';fen[2]='-';fen[3]='-';fen[4]='0';fen[5]='1';
+  const fen=chess.fen().split(' ');fen[1]='w';fen[2]='-';fen[3]='-';fen[4]='0';fen[5]='1';
   const candidate=new Chess(fen.join(' '));
   const kings=candidate.board().flat().filter(p=>p?.type==='k');
   if(kings.some(k=>k&&candidate.isAttacked(k.square,k.color==='w'?'b':'w')))continue;

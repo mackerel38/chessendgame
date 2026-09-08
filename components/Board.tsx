@@ -8,7 +8,7 @@ import type { Tactics } from '../lib/tactics';
 export const names: Record<string, string> = { k: 'キング', q: 'クイーン', r: 'ルーク', b: 'ビショップ', n: 'ナイト', p: 'ポーン' };
 export type Animation = { id: number; from: string; to: string; piece: string };
 export type MoveMark = { from: string; to: string; kind: '?' | '??' };
-type Props = { fen: string; blackBottom: boolean; disabled: boolean; selected: string; legal: string[]; hint: string; animation: Animation | null; tactics?: Tactics | null; moveMark?: MoveMark | null; onSquare: (s: string) => void; onMove: (from: string, to: string) => void; onSelect: (s: string) => void };
+type Props = { fen: string; blackBottom: boolean; disabled: boolean; selected: string; legal: string[]; hint: string; animation: Animation | null; tactics?: Tactics | null; moveMark?: MoveMark | null; drawMark?: boolean; onSquare: (s: string) => void; onMove: (from: string, to: string) => void; onSelect: (s: string) => void };
 export default function Board(p: Props) {
   const ref = useRef<HTMLDivElement>(null), gesture = useRef<{ from: string; right: boolean; x: number; y: number; moved: boolean; pointer: number } | null>(null);
   const [drag, setDrag] = useState<{ from: string; x: number; y: number } | null>(null), [draft, setDraft] = useState<{ from: string; to: string } | null>(null), [marks, setMarks] = useState<string[]>([]), [arrows, setArrows] = useState<{ from: string; to: string }[]>([]);
@@ -48,6 +48,7 @@ export default function Board(p: Props) {
   const renderedArrows = [...arrows, ...(draft && draft.from !== draft.to ? [draft] : [])];
   const a = p.animation, from = a ? screenPoint(a.from, p.blackBottom) : null, to = a ? screenPoint(a.to, p.blackBottom) : null;
   const draggedPiece = drag ? chess.get(drag.from as Square) : null;
+  const kings = p.drawMark ? chess.board().flat().filter(piece => piece?.type === 'k') : [];
   return <><div className="board-wrap"><div ref={ref} className="board interactive-board" data-fen={p.fen} aria-label="チェス盤" onContextMenu={e => e.preventDefault()} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { gesture.current = null; setDrag(null); setDraft(null); }}>
     {Array.from({ length: 64 }, (_, i) => {
       const s = squareAt(i % 8 + .5, Math.floor(i / 8) + .5, p.blackBottom), piece = chess.get(s as Square);
@@ -61,6 +62,7 @@ export default function Board(p: Props) {
       {marks.map(s => { const pt = screenPoint(s, p.blackBottom); return <circle key={s} cx={pt.x + .5} cy={pt.y + .5} r=".4" fill="none" stroke="#1e754bdd" strokeWidth=".09" />; })}
       {renderedArrows.map((ar, i) => { const f = screenPoint(ar.from, p.blackBottom), t = screenPoint(ar.to, p.blackBottom); return <line key={i} x1={f.x + .5} y1={f.y + .5} x2={t.x + .5} y2={t.y + .5} stroke="#1e754bdd" strokeWidth=".13" strokeLinecap="round" markerEnd={`url(#${markerId})`} />; })}
       {p.moveMark && (() => { const t = screenPoint(p.moveMark.to, p.blackBottom); const bad = p.moveMark.kind === '??'; return <text x={t.x + .82} y={t.y + .22} textAnchor="middle" fontSize=".42" fontWeight="800" fill={bad ? '#c13d36' : '#b88418'} stroke="#fff9" strokeWidth=".035" paintOrder="stroke">{p.moveMark.kind}</text>; })()}
+      {kings.map(piece => { const t = screenPoint(piece!.square, p.blackBottom); return <text key={`draw-${piece!.square}`} x={t.x + .82} y={t.y + .22} textAnchor="middle" fontSize=".42" fontWeight="900" fill="#4b4f4d" stroke="#fff9" strokeWidth=".035" paintOrder="stroke">=</text>; })}
     </svg>
     {drag && draggedPiece && <span className="floating-piece" style={{ left: drag.x / 8 * 100 + '%', top: drag.y / 8 * 100 + '%' }}><Piece code={draggedPiece.color + draggedPiece.type} /></span>}
     {a && from && to && <span key={a.id} className="animated-piece" style={{ left: to.x / 8 * 100 + '%', top: to.y / 8 * 100 + '%', '--dx': (from.x - to.x) * 100 + '%', '--dy': (from.y - to.y) * 100 + '%' } as CSSProperties}><Piece code={a.piece} /></span>}
