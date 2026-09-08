@@ -7,7 +7,8 @@ import type { Tactics } from '../lib/tactics';
 
 export const names: Record<string, string> = { k: 'キング', q: 'クイーン', r: 'ルーク', b: 'ビショップ', n: 'ナイト', p: 'ポーン' };
 export type Animation = { id: number; from: string; to: string; piece: string };
-type Props = { fen: string; blackBottom: boolean; disabled: boolean; selected: string; legal: string[]; hint: string; animation: Animation | null; tactics?: Tactics | null; onSquare: (s: string) => void; onMove: (from: string, to: string) => void; onSelect: (s: string) => void };
+export type MoveMark = { from: string; to: string; kind: '?' | '??' };
+type Props = { fen: string; blackBottom: boolean; disabled: boolean; selected: string; legal: string[]; hint: string; animation: Animation | null; tactics?: Tactics | null; moveMark?: MoveMark | null; onSquare: (s: string) => void; onMove: (from: string, to: string) => void; onSelect: (s: string) => void };
 export default function Board(p: Props) {
   const ref = useRef<HTMLDivElement>(null), gesture = useRef<{ from: string; right: boolean; x: number; y: number; moved: boolean; pointer: number } | null>(null);
   const [drag, setDrag] = useState<{ from: string; x: number; y: number } | null>(null), [draft, setDraft] = useState<{ from: string; to: string } | null>(null), [marks, setMarks] = useState<string[]>([]), [arrows, setArrows] = useState<{ from: string; to: string }[]>([]);
@@ -59,6 +60,7 @@ export default function Board(p: Props) {
     <svg className="annotations" viewBox="0 0 8 8" aria-hidden="true"><defs><marker id={markerId} markerWidth="3" markerHeight="3" refX="2.1" refY="1.5" orient="auto"><path d="M0,0 L3,1.5 L0,3 Z" fill="#1e754bdd" /></marker></defs>
       {marks.map(s => { const pt = screenPoint(s, p.blackBottom); return <circle key={s} cx={pt.x + .5} cy={pt.y + .5} r=".4" fill="none" stroke="#1e754bdd" strokeWidth=".09" />; })}
       {renderedArrows.map((ar, i) => { const f = screenPoint(ar.from, p.blackBottom), t = screenPoint(ar.to, p.blackBottom); return <line key={i} x1={f.x + .5} y1={f.y + .5} x2={t.x + .5} y2={t.y + .5} stroke="#1e754bdd" strokeWidth=".13" strokeLinecap="round" markerEnd={`url(#${markerId})`} />; })}
+      {p.moveMark && (() => { const t = screenPoint(p.moveMark.to, p.blackBottom); const bad = p.moveMark.kind === '??'; return <text x={t.x + .82} y={t.y + .22} textAnchor="middle" fontSize=".42" fontWeight="800" fill={bad ? '#c13d36' : '#b88418'} stroke="#fff9" strokeWidth=".035" paintOrder="stroke">{p.moveMark.kind}</text>; })()}
     </svg>
     {drag && draggedPiece && <span className="floating-piece" style={{ left: drag.x / 8 * 100 + '%', top: drag.y / 8 * 100 + '%' }}><Piece code={draggedPiece.color + draggedPiece.type} /></span>}
     {a && from && to && <span key={a.id} className="animated-piece" style={{ left: to.x / 8 * 100 + '%', top: to.y / 8 * 100 + '%', '--dx': (from.x - to.x) * 100 + '%', '--dy': (from.y - to.y) * 100 + '%' } as CSSProperties}><Piece code={a.piece} /></span>}

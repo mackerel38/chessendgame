@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
-import Board, { names, type Animation } from '../components/Board';
+import Board, { names, type Animation, type MoveMark } from '../components/Board';
 import Piece, { getPieceSet, setPieceSet } from '../components/Piece';
 import { PIECE_SETS, type PieceSet } from '../lib/pieces';
 import StudyTools from '../components/StudyTools';
@@ -37,15 +37,16 @@ export default function Home() {
   const [selected, setSelected] = useState(''), [data, setData] = useState<Tablebase | null>(null), [history, setHistory] = useState<Entry[]>([]), [promotion, setPromotion] = useState<TBMove[]>([]), [hint, setHint] = useState(''), [flipped, setFlipped] = useState(false), [mistakes, setMistakes] = useState(0), [solved, setSolved] = useState(0), [serial, setSerial] = useState(0);
   const [animation, setAnimation] = useState<Animation | null>(null), [replayLine, setReplayLine] = useState<string[]>([]), [replayStatus, setReplayStatus] = useState(''), [replayMode, setReplayMode] = useState<'mistake' | 'answer'>('mistake'), [paused, setPaused] = useState(false), [speed, setSpeed] = useState(800), [help, setHelp] = useState(false);
   const [previousFen, setPreviousFen] = useState(''), [showTactics, setShowTactics] = useState(true);
+  const [moveMark, setMoveMark] = useState<MoveMark | null>(null);
   const [pieceSet, setCurrentPieceSet] = useState<PieceSet>('cburnett');
-  const game = useRef(new Chess(EMPTY)), current = useRef<Problem | null>(null), controller = useRef(new AbortController()), animationId = useRef(0), locked = useRef(true), pauseRef = useRef(false), speedRef = useRef(800), replaying = useRef(false), beforeReplay = useRef<Tablebase | null>(null), failureAction = useRef<'generate' | 'sync'>('generate');
+  const game = useRef(new Chess(EMPTY)), current = useRef<Problem | null>(null), controller = useRef(new AbortController()), animationId = useRef(0), locked = useRef(true), pauseRef = useRef(false), speedRef = useRef(800), replaying = useRef(false), beforeReplay = useRef<Tablebase | null>(null), failureAction = useRef<'generate' | 'sync'>('generate'), redoStack = useRef<string[][]>([]);
   const initial = useRef(EMPTY), reviewing = useRef(false), credited = useRef(false);
   const player = (problem?.fen.split(' ')[1] || initial.current.split(' ')[1]) as 'w' | 'b';
   const blackBottom = (player === 'b') !== flipped;
   const tactics = useMemo(() => showTactics ? analyzeTactics(fen, previousFen || undefined) : null, [fen, previousFen, showTactics]);
   function cancel() {
     controller.current.abort(); controller.current = new AbortController();
-    setAnimation(null); setPromotion([]); setSelected(''); setHint(''); pauseRef.current = false; setPaused(false); replaying.current = false;
+    setAnimation(null); setPromotion([]); setSelected(''); setHint(''); setMoveMark(null); pauseRef.current = false; setPaused(false); replaying.current = false;
     return controller.current.signal;
   }
   function report(e: unknown, signal: AbortSignal) {
@@ -129,7 +130,7 @@ export default function Home() {
       for (let i = 1; i <= 60; i++) {
         setAttempt(i); const candidate = randomPosition(count); const tb = await probe(candidate, signal); if (signal.aborted) return;
         const p = acceptProblem(candidate, tb, filter); if (!p) { await delay(200, signal); continue; }
-        current.current = p; initial.current = p.fen; game.current = new Chess(p.fen); reviewing.current = false; credited.current = false;
+    current.current = p; initial.current = p.fen; game.current = new Chess(p.fen); reviewing.current = false; credited.current = false; redoStack.current = [];
         setProblem(p); setFen(p.fen); setPreviousFen(''); setHistory([]); setMistakes(0); setFlipped(false); setSerial(n => n + 1);
         setData(tb); setPhase('ready'); locked.current = false; return;
       }
@@ -195,7 +196,12 @@ export default function Home() {
     // Repetition is a reset, not a failed-move replay or a solved exercise.
     if (repetitionRestart(trial, p.fen)) { restart('同一局面が3回現れたため、この問題の最初の盤面に戻りました。'); return; }
     const end = terminal(trial, player, p.goal);
-    if (!preservesGoal(move, p.goal) || (end && !end.success)) { void replay(move, p, tb); return; }
+    if (!preservesGoal(move, p.goal) || (end && !end.success)) {
+      const kind: MoveMark['kind'] = outcome(move.category) === 0 ? '?' : '??';
+      setMoveMark({ from: move.uci.slice(0, 2), to: move.uci.slice(2, 4), kind });
+      void replay(move, p, tb); return;
+    }
+    redoStack.current = []; setMoveMark(null);
     const signal = controller.current.signal; setPhase('thinking'); setData(null);
     try {
       moveInstantly(game.current, move.uci, signal); if (signal.aborted) return;
@@ -216,7 +222,7 @@ export default function Home() {
   }
   function restart(message = '') {
     const p = current.current; if (!p && !reviewing.current) return;
-    const signal = cancel(); game.current = new Chess(initial.current); setFen(initial.current); setPreviousFen('');
+    const signal = cancel(); game.current = new Chess(initial.current); redoStack.current = []; setFen(initial.current); setPreviousFen('');
     setHistory([]); setMistakes(0); setFeedback(message); setError(''); setReplayLine([]); setData(null); setSerial(n => n + 1);
     if (p) void sync(game.current, p, signal); else { setPhase('review'); locked.current = true; }
   }
@@ -224,21 +230,37 @@ export default function Home() {
     if (replaying.current) { restoreReplay('再生を取り消し、再生前の局面に戻りました。'); return; }
     if (!game.current.history().length) return;
     const signal = cancel(), p = current.current;
-    undoTurn(game.current, player, !p); setFen(game.current.fen());
+    const before = game.current.history({ verbose: true });
+    undoTurn(game.current, player, !p);
+    const afterLength = game.current.history().length;
+    const removed = before.slice(afterLength).map(m => m.from + m.to + (m.promotion ?? ''));
+    if (removed.length) redoStack.current.push(removed);
+    setFen(game.current.fen()); setMoveMark(null);
     const length = game.current.history().length; setHistory(h => h.slice(0, length));
     setPreviousFen(game.current.history({ verbose: true }).at(-1)?.before || '');
     setData(null); setError(''); setReplayLine([]); setSerial(n => n + 1);
     setFeedback(p ? '直前のあなたの手番まで巻き戻しました。' : '棋譜を1 ply巻き戻しました。');
     if (p) void sync(game.current, p, signal); else { setPhase('review'); locked.current = true; }
   }
+  function advance() {
+    if (locked.current || !redoStack.current.length) return;
+    const moves = redoStack.current.pop()!;
+    try {
+      for (const uci of moves) applyUci(game.current, uci);
+      setFen(game.current.fen()); updateHistory(game.current, '復元'); setMoveMark(null);
+      setFeedback('先に戻した手を進めました。');
+      const p = current.current;
+      if (p) { const signal = cancel(); void sync(game.current, p, signal); } else setPhase('review');
+    } catch { redoStack.current.push(moves); setFeedback('この手順を進められませんでした。'); }
+  }
   function retry() { const p = current.current; if (p && failureAction.current === 'sync') void sync(game.current, p, cancel()); else void generate(); }
   const legal = data?.moves.filter(m => m.uci.slice(0, 2) === selected).map(m => m.uci.slice(2, 4)) || [];
   return <main><header><a className="brand" href="./"><Piece code="bp" /><span>ENDGAME<span className="brand-light"> / 終盤道場</span></span></a><span className="header-note">最後の数駒から、強くなる。</span><button className="status-pill" onClick={() => setHelp(true)}>操作ガイド ↗</button></header>
     <div className="workspace"><section className="heading"><div><p className="eyebrow">CHESS ENDGAME TRAINER</p><h1>最後の一手まで、最善を。</h1><p className="muted">3〜7駒のランダム局面。勝ちをつかむ、引き分けを守る。</p></div><span className="lesson-number">{solved}<small> SOLVED</small></span></section>
       <div className="play-layout"><section><div className="player-line"><span className="avatar"><Piece code={player === 'w' ? 'bk' : 'wk'} /></span><div><strong>テーブルベース</strong><small>最善応手</small></div><span className="player-color">{player === 'w' ? '黒' : '白'}</span></div>
-        <Board key={serial} fen={fen} blackBottom={blackBottom} disabled={phase !== 'ready'} selected={selected} legal={phase === 'ready' ? legal : []} hint={hint} animation={animation} tactics={tactics} onSquare={clickSquare} onMove={moveFrom} onSelect={s => { if (game.current.get(s as Parameters<Chess['get']>[0])?.color === player) setSelected(s); }} />
+        <Board key={serial} fen={fen} blackBottom={blackBottom} disabled={phase !== 'ready'} selected={selected} legal={phase === 'ready' ? legal : []} hint={hint} animation={animation} tactics={tactics} moveMark={moveMark} onSquare={clickSquare} onMove={moveFrom} onSelect={s => { if (game.current.get(s as Parameters<Chess['get']>[0])?.color === player) setSelected(s); }} />
         <div className="player-line"><span className="avatar white-avatar"><Piece code={player + 'k'} /></span><div><strong>あなた / {player === 'w' ? '白' : '黒'}</strong><small>{phase === 'review' ? '棋譜・盤面を閲覧中（自動応手なし）' : phase === 'replay' ? (replayMode === 'answer' ? '答えの最善進行を再生中' : '失敗手の最善進行を再生中') : phase === 'ready' ? '駒をドラッグ、またはクリックして移動' : phase === 'generating' ? `局面を生成中 · ${attempt} 局面を照合` : phase === 'done' ? '練習終了' : phase === 'error' ? '接続待ち' : '最善応手を確認中'}</small></div><span className="your-turn">● {phase === 'ready' ? 'YOUR TURN' : phase === 'replay' ? 'REPLAY' : phase === 'review' ? 'REVIEW' : phase === 'done' ? 'FINISHED' : 'WAIT'}</span></div>
-        <div className="board-tools"><button onClick={() => restart()} disabled={phase === 'generating' || (!problem && !reviewing.current)}>↶ 最初から</button><button onClick={rewind} disabled={phase === 'generating' || (!history.length && phase !== 'replay')}>↶ 巻き戻す</button><button onClick={() => setFlipped(v => !v)} disabled={!!animation}>⇅ 盤面を反転</button><span>{history.filter(h => h.player).length} 手 / ミス {mistakes} 回</span></div>
+        <div className="board-tools"><button onClick={() => restart()} disabled={phase === 'generating' || (!problem && !reviewing.current)}>↶ 最初から</button><button onClick={rewind} disabled={phase === 'generating' || (!history.length && phase !== 'replay')}>← 戻る</button><button onClick={advance} disabled={phase === 'generating' || !redoStack.current.length}>進む →</button><button onClick={() => setFlipped(v => !v)} disabled={!!animation}>⇅ 盤面を反転</button><span>{history.filter(h => h.player).length} 手 / ミス {mistakes} 回</span></div>
         <div className="tactic-settings"><label><input type="checkbox" checked={showTactics} onChange={e => { setShowTactics(e.target.checked); try { localStorage.setItem('endgame-show-tactics', String(e.target.checked)); } catch {} }} />戦術の自動矢印を表示</label>{showTactics && <><p className="tactic-description" role="status">{tactics?.labels.join(' / ') || '現在の局面に表示対象の戦術はありません。'}</p><p className="muted">赤：チェック／メイト　青：ステイルメイトの逃げ道　黄：フォーク　紫点線：ディスカバードアタック。利きの可視化であり、駒得や勝ちを保証するものではありません。</p></>}</div>
         <div className={`feedback ${phase === 'replay' ? 'bad' : ''}`} role="status" aria-live="polite">{error ? <><span>{error}</span><button onClick={retry}>再試行</button></> : feedback || '右ドラッグで矢印、右クリックでマーク。左操作で手動注釈をクリア。'}</div>
       </section><aside><section className="panel"><div className="panel-top"><p className="eyebrow">POSITION GENERATOR</p><span className="tag">{problem?.pieces || count} 駒</span></div><h2>ランダム終盤</h2>
