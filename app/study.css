@@ -3,6 +3,7 @@
 .square>span{width:86%;height:86%;font-size:inherit;text-shadow:none}
 .floating-piece .piece-image,.animated-piece .piece-image{width:86%;height:86%}
 .promotion-options span{display:block;width:48px;height:48px;margin:auto}
+.promotion-backdrop{background:#23362e35}.promotion-picker{background:#fff;border-radius:9px;padding:6px;box-shadow:0 12px 35px #17221935}.promotion-options{display:flex;gap:4px;margin:0}.promotion-options button{display:grid;place-items:center;width:64px;height:64px;border:0;border-radius:6px;background:#f4f6f1;padding:5px}.promotion-options button:hover,.promotion-options button:focus-visible{background:#e2eadc}.promotion-options span{width:52px;height:52px}
 .avatar .piece-image{width:32px;height:32px}.brand>.piece-image{width:32px;height:32px}
 .board-tools{flex-wrap:wrap}.board-tools>span{white-space:nowrap}
 .tactic-settings{border-top:1px solid var(--line);padding:12px 0;font-size:12px}
