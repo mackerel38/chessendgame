@@ -49,7 +49,7 @@ export default function Home() {
   const tactics = useMemo(() => showTactics ? analyzeTactics(fen, previousFen || undefined) : null, [fen, previousFen, showTactics]);
   function cancel() {
     controller.current.abort(); controller.current = new AbortController();
-    setAnimation(null); setPromotion([]); setSelected(''); setHint(''); setMoveMark(null); pauseRef.current = false; setPaused(false); replaying.current = false;
+    setAnimation(null); setPromotion([]); setSelected(''); setHint(''); setMoveMark(null); setDrawComplete(false); pauseRef.current = false; setPaused(false); replaying.current = false;
     return controller.current.signal;
   }
   function report(e: unknown, signal: AbortSignal) {
