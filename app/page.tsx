@@ -88,7 +88,7 @@ export default function Home() {
     }
   }
   function endGame(c: Chess, p: Problem) {
-    if (repetitionRestart(c, p.fen)) { restart('同一局面が3回現れたため。'); return true; }
+    if (p.goal === 'win' && repetitionRestart(c, p.fen)) { restart('同一局面が3回現れたため。'); return true; }
     const end = terminal(c, p.fen.split(' ')[1] as 'w' | 'b', p.goal); if (!end) return false;
     setPhase('done'); setFeedback(end.text); setData(null); locked.current = true; if (end.success) setAutoNextReady(true);
     if (end.success && !credited.current) {
@@ -207,7 +207,7 @@ export default function Home() {
         await animate(c, best.uci, signal); setReplayLine(line => [...line, best.san]); plies++;
       }
       if (signal.aborted) return;
-      if (repetitionRestart(c, p.fen)) { restart('同一局面が3回現れたため。'); return; }
+      if (p.goal === 'win' && repetitionRestart(c, p.fen)) { restart('同一局面が3回現れたため。'); return; }
       const end = terminal(c, player, p.goal);
       if (answer && end) {
         replaying.current = false; game.current = c; updateHistory(c, '解答'); setPhase('done'); setData(null);
@@ -225,7 +225,7 @@ export default function Home() {
     locked.current = true; setSelected(''); setHint(''); setPromotion([]);
     const trial = cloneGame(game.current, p.fen); applyUci(trial, move.uci);
     // Repetition is marked as a dubious move, then reset after a short pause.
-    if (repetitionRestart(trial, p.fen)) {
+    if (p.goal === 'win' && repetitionRestart(trial, p.fen)) {
       const signal = controller.current.signal;
       setMoveMark({ from: move.uci.slice(0, 2), to: move.uci.slice(2, 4), kind: '?' });
       setFeedback('同一局面が3回現れたため。'); setPhase('thinking');
