@@ -64,5 +64,5 @@ export default function Board(p: Props) {
     </svg>
     {drag && draggedPiece && <span className="floating-piece" style={{ left: drag.x / 8 * 100 + '%', top: drag.y / 8 * 100 + '%' }}><Piece code={draggedPiece.color + draggedPiece.type} /></span>}
     {a && from && to && <span key={a.id} className="animated-piece" style={{ left: to.x / 8 * 100 + '%', top: to.y / 8 * 100 + '%', '--dx': (from.x - to.x) * 100 + '%', '--dy': (from.y - to.y) * 100 + '%' } as CSSProperties}><Piece code={a.piece} /></span>}
-  </div></div><button className="clear-annotations" onClick={() => { setMarks([]); setArrows([]); }}>手動注釈を消す</button></>;
+  </div></div></>;
 }
