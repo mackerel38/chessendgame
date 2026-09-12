@@ -8,7 +8,7 @@ import type { Tactics } from '../lib/tactics';
 export const names: Record<string, string> = { k: 'キング', q: 'クイーン', r: 'ルーク', b: 'ビショップ', n: 'ナイト', p: 'ポーン' };
 export type Animation = { id: number; from: string; to: string; piece: string };
 export type MoveMark = { from: string; to: string; kind: '?' | '??' };
-type Props = { fen: string; blackBottom: boolean; disabled: boolean; selected: string; legal: string[]; hint: string; animation: Animation | null; tactics?: Tactics | null; moveMark?: MoveMark | null; drawMark?: boolean; onSquare: (s: string) => void; onMove: (from: string, to: string) => void; onSelect: (s: string) => void };
+type Props = { fen: string; blackBottom: boolean; disabled: boolean; selected: string; legal: string[]; hint: string; animation: Animation | null; tactics?: Tactics | null; moveMark?: MoveMark | null; drawMark?: boolean; lastMove?: { from: string; to: string } | null; onSquare: (s: string) => void; onMove: (from: string, to: string) => void; onSelect: (s: string) => void };
 export default function Board(p: Props) {
   const ref = useRef<HTMLDivElement>(null), gesture = useRef<{ from: string; right: boolean; x: number; y: number; moved: boolean; pointer: number } | null>(null);
   const [drag, setDrag] = useState<{ from: string; x: number; y: number } | null>(null), [draft, setDraft] = useState<{ from: string; to: string } | null>(null), [marks, setMarks] = useState<string[]>([]), [arrows, setArrows] = useState<{ from: string; to: string }[]>([]);
@@ -52,7 +52,7 @@ export default function Board(p: Props) {
   return <><div className="board-wrap"><div ref={ref} className="board interactive-board" data-fen={p.fen} aria-label="チェス盤" onContextMenu={e => e.preventDefault()} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { gesture.current = null; setDrag(null); setDraft(null); }}>
     {Array.from({ length: 64 }, (_, i) => {
       const s = squareAt(i % 8 + .5, Math.floor(i / 8) + .5, p.blackBottom), piece = chess.get(s as Square);
-      return <button key={s} data-square={s} aria-label={`${s} ${piece ? (piece.color === 'w' ? '白' : '黒') + names[piece.type] : ''}`} aria-pressed={p.selected === s} onClick={e => { if (e.detail === 0 && !p.disabled) p.onSquare(s); }} className={`square ${(Number(s[1]) + 'abcdefgh'.indexOf(s[0])) % 2 === 0 ? 'dark' : 'light'} ${p.selected === s ? 'selected' : ''} ${p.hint && (s === p.hint.slice(0, 2) || s === p.hint.slice(2, 4)) ? 'hint-square' : ''}`}>
+      return <button key={s} data-square={s} aria-label={`${s} ${piece ? (piece.color === 'w' ? '白' : '黒') + names[piece.type] : ''}`} aria-pressed={p.selected === s} onClick={e => { if (e.detail === 0 && !p.disabled) p.onSquare(s); }} className={`square ${(Number(s[1]) + 'abcdefgh'.indexOf(s[0])) % 2 === 0 ? 'dark' : 'light'} ${p.lastMove && (p.lastMove.from === s || p.lastMove.to === s) ? 'last-move' : ''} ${p.selected === s ? 'selected' : ''} ${p.hint && (s === p.hint.slice(0, 2) || s === p.hint.slice(2, 4)) ? 'hint-square' : ''}`}>
         <span className={drag?.from === s || a?.to === s ? 'hidden-piece' : ''}>{piece && <Piece code={piece.color + piece.type} />}</span>
         {p.legal.includes(s) && <i className={piece ? 'capture-dot' : 'move-dot'} />}{i % 8 === 0 && <small className="rank">{s[1]}</small>}{i >= 56 && <small className="file">{s[0]}</small>}
       </button>;

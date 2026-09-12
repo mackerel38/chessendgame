@@ -44,12 +44,15 @@ export default function Home() {
   const [drawComplete, setDrawComplete] = useState(false);
   const game = useRef(new Chess(EMPTY)), current = useRef<Problem | null>(null), controller = useRef(new AbortController()), animationId = useRef(0), locked = useRef(true), pauseRef = useRef(false), speedRef = useRef(800), replaying = useRef(false), beforeReplay = useRef<Tablebase | null>(null), failureAction = useRef<'generate' | 'sync'>('generate'), redoStack = useRef<string[][]>([]);
   const initial = useRef(EMPTY), reviewing = useRef(false), credited = useRef(false), prepared = useRef<PreparedProblem | null>(null), preparing = useRef<AbortController | null>(null);
+  const preparingPromise = useRef<Promise<void> | null>(null);
+  const savedProblem = useRef<Problem | null>(null);
+  const lastMove = useMemo(() => previousFen ? new Chess(previousFen).moves({ verbose: true }).find(m => m.after === fen) ?? null : null, [previousFen, fen]);
   const player = (problem?.fen.split(' ')[1] || initial.current.split(' ')[1]) as 'w' | 'b';
   const blackBottom = (player === 'b') !== flipped;
   const tactics = useMemo(() => showTactics ? analyzeTactics(fen, previousFen || undefined) : null, [fen, previousFen, showTactics]);
   function cancel() {
     controller.current.abort(); controller.current = new AbortController();
-    setAnimation(null); setPromotion([]); setSelected(''); setHint(''); setMoveMark(null); setDrawComplete(false); pauseRef.current = false; setPaused(false); replaying.current = false;
+    setAnimation(null); setPromotion([]); setSelected(''); setHint(''); setMoveMark(null); setDrawComplete(false); setAutoNextReady(false); pauseRef.current = false; setPaused(false); replaying.current = false;
     return controller.current.signal;
   }
   function report(e: unknown, signal: AbortSignal) {
@@ -62,7 +65,7 @@ export default function Home() {
     setPreviousFen(c.history({ verbose: true }).at(-1)?.before || '');
   }
   function loadStudy(loaded: ImportedGame) {
-    cancel(); locked.current = true; current.current = null; reviewing.current = true; credited.current = false;
+    cancel(); locked.current = true; current.current = null; savedProblem.current = null; reviewing.current = true; credited.current = false;
     initial.current = loaded.initialFen; game.current = loaded.game;
     setProblem(null); setFen(loaded.game.fen()); updateHistory(loaded.game, '読込');
     setData(null); setError(''); setFeedback('閲覧モードです。巻き戻しで棋譜を戻せます。「この盤面を練習」で現在局面から開始します。');
@@ -126,22 +129,28 @@ export default function Home() {
     } catch (e) { report(e, signal); }
   }
   async function prepareNext() {
+    if (prepared.current && (prepared.current.count !== count || prepared.current.filter !== filter)) prepared.current = null;
     if (preparing.current || prepared.current) return;
     const task = new AbortController(); preparing.current = task;
     try {
-      for (let i = 0; i < 60; i++) {
-        const candidate = randomPosition(count), tb = await probe(candidate, task.signal);
+      for (let i = 0; i < 120 && !task.signal.aborted; i++) {
+        await delay(500, task.signal);
+        let candidate: string, tb: Tablebase;
+        try { candidate = randomPosition(count); tb = await probe(candidate, task.signal); }
+        catch { if (task.signal.aborted) return; await delay(5000, task.signal); continue; }
         if (task.signal.aborted) return;
         const next = acceptProblem(candidate, tb, filter);
         if (next) { prepared.current = { problem: next, data: tb, count, filter }; return; }
       }
     } catch { /* Background preparation is optional and must not disturb the current exercise. */ }
-    finally { preparing.current = null; }
+    finally { if (preparing.current === task) preparing.current = null; }
   }
   async function generate() {
     const signal = cancel(); failureAction.current = 'generate'; setAutoNextReady(false); setDrawComplete(false); setFen(game.current.fen()); locked.current = true;
     setPhase('generating'); setError(''); setFeedback(''); setData(null); setReplayLine([]); setAttempt(0);
     try {
+      if (!prepared.current && preparingPromise.current) await preparingPromise.current;
+      if (signal.aborted) return;
       const ready = prepared.current;
       if (ready && ready.count === count && ready.filter === filter) {
         prepared.current = null;
@@ -172,14 +181,16 @@ export default function Home() {
     };
     if (!readUrl()) void generate();
     window.addEventListener('hashchange', readUrl);
-    return () => { controller.current.abort(); window.removeEventListener('hashchange', readUrl); };
+    return () => { preparing.current?.abort(); controller.current.abort(); window.removeEventListener('hashchange', readUrl); };
     // Initial generation only; controls apply when the generate button is pressed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    if (phase === 'ready' && problem) void prepareNext();
-    return () => { preparing.current?.abort(); preparing.current = null; };
-  }, [phase, problem?.fen, count, filter]);
+    preparing.current?.abort(); preparing.current = null; prepared.current = null; preparingPromise.current = null;
+  }, [count, filter]);
+  useEffect(() => {
+    if (problem && phase !== 'generating' && !preparing.current && !prepared.current) preparingPromise.current = prepareNext();
+  }, [phase, problem, count, filter]);
   useEffect(() => {
     if (phase !== 'done' || !autoNext || !autoNextReady) return;
     const timer = window.setTimeout(() => { setAutoNextReady(false); void generate(); }, 3000);
@@ -223,12 +234,11 @@ export default function Home() {
     if (outcome(move.category) === null) { setFeedback('この手の厳密な評価を確認できません。'); return; }
     locked.current = true; setSelected(''); setHint(''); setPromotion([]);
     const trial = cloneGame(game.current, p.fen); applyUci(trial, move.uci);
-    // Repetition is marked as a dubious move, then reset after a short pause.
     const end = terminal(trial, player, p.goal);
-    if (!preservesGoal(move, p.goal) || (end && !end.success)) {
-      const kind: MoveMark['kind'] = outcome(move.category) === 0 ? '?' : '??';
+    if (end ? !end.success : !preservesGoal(move, p.goal)) {
+      const kind: MoveMark['kind'] = trial.isDraw() || outcome(move.category) === 0 ? '?' : '??';
       setMoveMark({ from: move.uci.slice(0, 2), to: move.uci.slice(2, 4), kind });
-      void replay(move, p, tb); return;
+      void replay(trial.isDraw() ? { ...move, category: 'draw' } : move, p, tb); return;
     }
     redoStack.current = []; setMoveMark(null);
     const signal = controller.current.signal; setPhase('thinking'); setData(null);
@@ -250,12 +260,29 @@ export default function Home() {
     setSelected(game.current.get(s as Parameters<Chess['get']>[0])?.color === player ? s : '');
   }
   function jumpToPly(ply: number) {
-    if (!ply || ply > history.length) return;
+    if (ply < 0 || ply > history.length) return;
     try {
       const c = new Chess(initial.current);
       history.slice(0, ply).forEach(entry => c.move(entry.san));
-      cancel(); game.current = c; current.current = null; reviewing.current = true; setProblem(null); setFen(c.fen()); setPreviousFen(c.history({ verbose: true }).at(-1)?.before || ''); setData(null); setFeedback(''); setPhase('review'); locked.current = true;
+      cancel(); savedProblem.current = current.current || savedProblem.current; game.current = c; current.current = null; reviewing.current = true; setProblem(null); setFen(c.fen()); setPreviousFen(c.history({ verbose: true }).at(-1)?.before || ''); setData(null); setFeedback(''); setPhase('review'); locked.current = true;
     } catch { setFeedback('この手の盤面を表示できませんでした。'); }
+  }
+  async function resumeAtPly(ply: number) {
+    jumpToPly(ply);
+    const c = game.current;
+    if (c.isGameOver()) { setFeedback('この局面は終局しています。'); return; }
+    const signal = cancel(); locked.current = true; setPhase('thinking'); setError('');
+    try {
+      const tb = await probe(c.fen(), signal); if (signal.aborted) return;
+      const value = outcome(tb.category), side = initial.current.split(' ')[1];
+      const relative = value === null ? null : c.turn() === side ? value : -value;
+      const original = savedProblem.current;
+      if (relative === null || relative < 0) { setPhase('review'); setFeedback('この局面からは勝ち・引き分けを目指す練習を再開できません。'); return; }
+      const p: Problem = original || { fen: initial.current, goal: relative === 1 ? 'win' : 'draw', pieces: c.board().flat().filter(Boolean).length };
+      current.current = p; setProblem(p); reviewing.current = false;
+      redoStack.current = []; updateHistory(c); setFeedback('');
+      await sync(c, p, signal, tb);
+    } catch (e) { report(e, signal); }
   }
   function restart(message = '') {
     const p = current.current; if (!p && !reviewing.current) return;
@@ -265,6 +292,7 @@ export default function Home() {
   }
   function rewind() {
     if (replaying.current) { restoreReplay('再生を取り消し、再生前の局面に戻りました。'); return; }
+    if (phase === 'review') { jumpToPly(Math.max(0, game.current.history().length - 1)); return; }
     if (!game.current.history().length) return;
     const signal = cancel(), p = current.current;
     const before = game.current.history({ verbose: true });
@@ -280,6 +308,7 @@ export default function Home() {
     if (p) void sync(game.current, p, signal); else { setPhase('review'); locked.current = true; }
   }
   function advance() {
+    if (phase === 'review') { jumpToPly(Math.min(history.length, game.current.history().length + 1)); return; }
     if (locked.current || !redoStack.current.length) return;
     const moves = redoStack.current.pop()!;
     try {
@@ -292,17 +321,18 @@ export default function Home() {
   }
   function retry() { const p = current.current; if (p && failureAction.current === 'sync') void sync(game.current, p, cancel()); else void generate(); }
   const legal = data?.moves.filter(m => m.uci.slice(0, 2) === selected).map(m => m.uci.slice(2, 4)) || [];
-  const notationRows = Array.from({ length: Math.ceil(history.length / 2) }, (_, row) => {
-    const entries = history.slice(row * 2, row * 2 + 2);
-    const white = entries.find(entry => entry.color === 'w' || (entry.color === undefined && entry.player === (player === 'w')));
-    const black = entries.find(entry => entry.color === 'b' || (entry.color === undefined && entry.player === (player === 'b')));
-    return { number: row + 1, white, black };
+  const notationRows: { number: number; white?: Entry; black?: Entry; whitePly: number }[] = [];
+  history.forEach((entry, index) => {
+    const color = entry.color || (entry.player ? player : player === 'w' ? 'b' : 'w');
+    if (color === 'w' || !notationRows.length) notationRows.push({ number: notationRows.length + 1, whitePly: index });
+    const row = notationRows[notationRows.length - 1];
+    if (color === 'w') { row.white = entry; row.whitePly = index + 1; } else row.black = entry;
   });
   return <main><header><a className="brand" href="./"><Piece code="bp" /><span>ENDGAME<span className="brand-light"> / 終盤道場</span></span></a><span className="header-note">CHESS ENDGAME TRAINER</span><button className="status-pill" onClick={() => setHelp(true)}>操作ガイド ↗</button></header>
     <div className="workspace"><div className="play-layout"><section><div className="player-line"><span className="avatar"><Piece code={player === 'w' ? 'bk' : 'wk'} /></span><div><strong>テーブルベース / {player === 'w' ? '黒' : '白'}</strong>{phase === 'thinking' && <small>思考中...</small>}</div></div>
-        <Board key={serial} fen={fen} blackBottom={blackBottom} disabled={phase !== 'ready'} selected={selected} legal={phase === 'ready' ? legal : []} hint={hint} animation={animation} tactics={tactics} moveMark={moveMark} drawMark={drawComplete} onSquare={clickSquare} onMove={moveFrom} onSelect={s => { if (game.current.get(s as Parameters<Chess['get']>[0])?.color === player) setSelected(s); }} />
+        <Board key={serial} fen={fen} blackBottom={blackBottom} disabled={phase !== 'ready'} selected={selected} legal={phase === 'ready' ? legal : []} hint={hint} animation={animation} tactics={tactics} moveMark={moveMark} drawMark={drawComplete} lastMove={lastMove} onSquare={clickSquare} onMove={moveFrom} onSelect={s => { if (game.current.get(s as Parameters<Chess['get']>[0])?.color === player) setSelected(s); }} />
         <div className="player-line"><span className="avatar white-avatar"><Piece code={player + 'k'} /></span><div><strong>あなた / {player === 'w' ? '白' : '黒'}</strong><small>{phase === 'review' ? '棋譜・盤面を閲覧中（自動応手なし）' : phase === 'replay' ? (replayMode === 'answer' ? '答えの最善進行を再生中' : '失敗手の最善進行を再生中') : phase === 'ready' ? (problem?.goal === 'draw' ? '引き分けを目指してください' : '勝ちを目指してください') : phase === 'generating' ? `局面を生成中 · ${attempt} 局面を照合` : phase === 'done' ? '練習終了' : phase === 'error' ? '接続待ち' : ''}</small></div><span className="your-turn">● {phase === 'ready' ? 'YOUR TURN' : phase === 'replay' ? 'REPLAY' : phase === 'review' ? 'REVIEW' : phase === 'done' ? 'FINISHED' : 'WAIT'}</span></div>
-        <div className="board-tools"><button onClick={() => restart()} disabled={phase === 'generating' || (!problem && !reviewing.current)}>↶ 最初から</button><button onClick={rewind} disabled={phase === 'generating' || (!history.length && phase !== 'replay')}>← 戻る</button><button onClick={advance} disabled={phase === 'generating' || !redoStack.current.length}>進む →</button><button onClick={() => setFlipped(v => !v)} disabled={!!animation}>⇅ 盤面を反転</button><span>{history.filter(h => h.player).length} 手 / ミス {mistakes} 回</span></div>
+        <div className="board-tools"><button onClick={() => restart()} disabled={phase === 'generating' || (!problem && !reviewing.current)}>↶ 最初から</button><button onClick={rewind} disabled={phase === 'generating' || (!history.length && phase !== 'replay')}>← 戻る</button><button onClick={advance} disabled={phase === 'generating' || (phase === 'review' ? game.current.history().length >= history.length : !redoStack.current.length)}>進む →</button><button onClick={() => setFlipped(v => !v)} disabled={!!animation}>⇅ 盤面を反転</button><span>{history.filter(h => h.player).length} 手 / ミス {mistakes} 回</span></div>
         {error || feedback ? <div className={`feedback ${phase === 'replay' ? 'bad' : ''}`} role="status" aria-live="polite">{error ? <><span>{error}</span><button onClick={retry}>再試行</button></> : feedback}</div> : null}
       </section><aside><section className="panel"><div className="panel-top"><p className="eyebrow">OPTION</p></div>
           <div className="generator-controls"><label>駒数（キングを含む）<select value={count} onChange={e => setCount(Number(e.target.value))}>{[3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n} 駒</option>)}</select></label><label>目標<select value={filter} onChange={e => setFilter(e.target.value as typeof filter)}><option value="any">どちらでも</option><option value="win">勝ち</option><option value="draw">引き分け</option></select></label></div>
@@ -313,11 +343,11 @@ export default function Home() {
           {problem && <div className={`objective ${problem.goal === 'draw' ? 'draw-objective' : ''}`}><span>{problem.goal === 'win' ? '↗' : '='}</span><div><small>現在の目標</small><strong>{problem.goal === 'win' ? '勝つ' : '引き分けを保つ'}</strong></div><span className="tag">{problem.goal.toUpperCase()}</span></div>}
           <button className="hint-button" disabled={phase !== 'ready'} onClick={() => { const best = data?.moves.find(m => problem && preservesGoal(m, problem.goal)); if (best) { setHint(best.uci); setSelected(best.uci.slice(0, 2)); } }}>{hint ? `${hint.slice(0, 2)} → ${hint.slice(2, 4)}${hint[4] ? ' = ' + names[hint[4]] : ''}` : '✧ 最善手のヒント'}</button><button className="hint-button" disabled={phase !== 'ready'} onClick={() => { const best = data?.moves.find(m => problem && preservesGoal(m, problem.goal)); if (best && problem && data && !locked.current) void replay(best, problem, data, true); }}>▶ 答えを最後まで再生</button>{!problem && <p className="verified">{reviewing.current ? '閲覧モード：評価は未取得' : '局面を検証しています'}</p>}</section>
         {phase === 'replay' && <section className="panel replay-panel"><p className="eyebrow">{replayMode === 'answer' ? 'ANSWER REPLAY' : 'MISTAKE REPLAY'}</p><h2>{replayStatus}</h2><p className="muted">双方が最善手を指した続き · {replayLine.length} ply</p><div className="replay-controls"><button onClick={() => { pauseRef.current = !pauseRef.current; setPaused(pauseRef.current); }}>{paused ? '▶ 再開' : 'Ⅱ 一時停止'}</button><select aria-label="再生速度" value={speed} onChange={e => { speedRef.current = Number(e.target.value); setSpeed(Number(e.target.value)); }}><option value={1200}>ゆっくり</option><option value={800}>標準</option><option value={300}>速い</option></select></div><p className="replay-san">{replayLine.join('　')}</p><button className="hint-button" onClick={() => restoreReplay('再生を打ち切り、元の局面に戻りました。')}>再生を終了して戻る ↶</button></section>}
-        <section className="panel moves-panel"><div className="panel-top"><p className="eyebrow">棋譜</p><span className="subtle">{history.length} ply</span></div>{history.length ? <><div className="move-head"><span></span><span>白</span><span>黒</span></div><ol className="move-list">{notationRows.map(row => <li key={row.number}><span className="move-number">{row.number}.</span>{row.white ? <button className="move-cell" onClick={() => jumpToPly(history.indexOf(row.white!) + 1)}>{row.white.san}</button> : <span className="move-cell" />}{row.black ? <button className="move-cell" onClick={() => jumpToPly(history.indexOf(row.black!) + 1)}>{row.black.san}</button> : <span className="move-cell" />}</li>)}</ol></> : null}</section>
+        <section className="panel moves-panel"><div className="panel-top"><p className="eyebrow">棋譜</p><span className="subtle">{history.length} ply</span></div>{history.length ? <><div className="move-head"><span></span><span>白</span><span></span><span>黒</span></div><ol className="move-list">{notationRows.map(row => <li key={row.number}><span className="move-number">{row.number}.</span>{row.white ? <button className="move-cell" onClick={() => jumpToPly(history.indexOf(row.white!) + 1)}>{row.white.san}</button> : <span className="move-cell" />}<button className="resume-move" aria-label={`${row.number}手目の白の着手後から再開`} title="ここから再開" disabled={phase === 'generating'} onClick={() => void resumeAtPly(row.whitePly)}>▶</button>{row.black ? <button className="move-cell" onClick={() => jumpToPly(history.indexOf(row.black!) + 1)}>{row.black.san}</button> : <span className="move-cell" />}</li>)}</ol></> : null}</section>
         <StudyTools game={game.current} onImport={loadStudy} disabled={phase === 'replay'} />
         <p className="muted">{solved} 局面クリア</p><details className="fen-details"><summary>現在の局面 FEN</summary><code>{fen}</code></details>
       </aside></div><footer><span>ENDGAME / 終盤道場</span><a href="https://github.com/lichess-org/lila-tablebase" target="_blank" rel="noreferrer">Lichess · Syzygy tablebases ↗</a></footer></div>
     {promotion.length > 0 && <div className="modal-backdrop promotion-backdrop" onClick={() => setPromotion([])}><section className="promotion-picker" role="dialog" aria-modal="true" aria-label="昇格する駒を選ぶ" onClick={e => e.stopPropagation()}><div className="promotion-options">{promotion.map(m => <button key={m.uci} aria-label={names[m.uci[4]]} onClick={() => void play(m)}><span><Piece code={player + m.uci[4]} /></span></button>)}</div></section></div>}
-    {help && <div className="modal-backdrop" onClick={() => setHelp(false)}><section className="modal" role="dialog" aria-modal="true" aria-label="操作ガイド" onClick={e => e.stopPropagation()}><h2>操作ガイド</h2><ul className="help-list"><li>左ドラッグ／クリック2回：駒を移動</li><li>答え：現在の局面から終局まで最善進行を再生</li><li>右ドラッグ／右クリック：手動の矢印／マーク</li><li>戦術の自動矢印：独立してON/OFF可能。設定は端末に保存</li><li>巻き戻す：練習中は前の自分の手番、閲覧中は1 ply戻す。再生中は再生を取り消す</li><li>三回同一局面：同じ問題の最初へ戻る（クリア数には加算しない）</li><li>FEN／PGNを読み込むと閲覧モード。「この盤面を練習」で現在局面を新しい開始局面にする</li><li>棋譜URLは着手履歴付き、盤面URLは現在のFENのみ。PGNファイルではコメントも保存</li></ul><p className="muted">失敗手の再生は400 plyで区切り、答えは終局まで再生します。局面生成と評価にはインターネット接続が必要です。入出力と戦術の表示は端末内で処理します。</p><button className="primary" onClick={() => setHelp(false)}>閉じる</button></section></div>}
+    {help && <div className="modal-backdrop" onClick={() => setHelp(false)}><section className="modal" role="dialog" aria-modal="true" aria-label="操作ガイド" onClick={e => e.stopPropagation()}><h2>操作ガイド</h2><ul className="help-list"><li>左ドラッグ／クリック2回：駒を移動</li><li>答え：現在の局面から終局まで最善進行を再生</li><li>右ドラッグ／右クリック：手動の矢印／マーク</li><li>戦術の自動矢印：独立してON/OFF可能。設定は端末に保存</li><li>巻き戻す：練習中は前の自分の手番、閲覧中は1 ply戻す。再生中は再生を取り消す</li><li>三回同一局面：引き分け目標ではクリア、勝ち目標では疑問手として元の局面へ戻る</li><li>FEN／PGNを読み込むと閲覧モード。「この盤面を練習」で現在局面を新しい開始局面にする</li><li>棋譜URLは着手履歴付き、盤面URLは現在のFENのみ。PGNファイルではコメントも保存</li></ul><p className="muted">失敗手の再生は400 plyで区切り、答えは終局まで再生します。局面生成と評価にはインターネット接続が必要です。入出力と戦術の表示は端末内で処理します。</p><button className="primary" onClick={() => setHelp(false)}>閉じる</button></section></div>}
   </main>;
 }

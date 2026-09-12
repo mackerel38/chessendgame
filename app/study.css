@@ -1,4 +1,7 @@
 /* Fixed SVG images replace every platform-dependent chess glyph. */
+.square.light.last-move{background:#f4f2b5}.square.dark.last-move{background:#b3bd78}.square.last-move.selected{background:#d8c372}
+.moves-panel .move-head,.moves-panel .move-list li{grid-template-columns:30px minmax(0,1fr) 32px minmax(0,1fr)}
+.resume-move{border:0;border-radius:4px;background:none;color:#356748;min-height:32px;padding:4px}.resume-move:hover{background:#edf3e8}
 .piece-image{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none;text-shadow:none}
 .square>span{width:86%;height:86%;font-size:inherit;text-shadow:none}
 .floating-piece .piece-image,.animated-piece .piece-image{width:86%;height:86%}
