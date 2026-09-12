@@ -30,6 +30,37 @@ async function probe(fen: string, signal: AbortSignal) {
   if (cache.size >= 500) cache.delete(cache.keys().next().value!);
   cache.set(fen, data); return data;
 }
+async function findProblem(count: number, filter: 'any' | 'win' | 'draw', signal: AbortSignal, progress?: (attempt: number) => void) {
+  const search = new AbortController();
+  const combined = AbortSignal.any([signal, search.signal]);
+  const deadline = Date.now() + 4000;
+  let fallback: { problem: Problem; data: Tablebase; score: number } | null = null;
+  try {
+    for (let attempt = 1; attempt <= 60; attempt++) {
+      if (combined.aborted) throw new DOMException('Aborted', 'AbortError');
+      progress?.(attempt);
+      if (fallback && Date.now() >= deadline) return fallback;
+      const candidate = randomPosition(count);
+      const request = probe(candidate, combined);
+      const tb: Tablebase | null = fallback
+        ? await Promise.race([request, delay(Math.max(0, deadline - Date.now()), combined).then(() => null)])
+        : await request;
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      if (!tb) return fallback!;
+      const preferred = acceptProblem(candidate, tb, filter);
+      if (preferred) return { problem: preferred, data: tb };
+      const acceptable = acceptProblem(candidate, tb, filter, false);
+      if (acceptable) {
+        const score: number = tb.moves.filter(m => preservesGoal(m, acceptable.goal)).length / tb.moves.length;
+        if (!fallback || score < fallback.score) fallback = { problem: acceptable, data: tb, score };
+      }
+      if (fallback && Date.now() >= deadline) return fallback;
+      await delay(100, combined);
+    }
+    if (fallback) return fallback;
+    throw new Error('条件に合う局面が見つかりませんでした。もう一度生成するか、目標を変えてください。');
+  } finally { search.abort(); }
+}
 type Entry = { san: string; player: boolean; quality: string; color?: 'w' | 'b' };
 type PreparedProblem = { problem: Problem; data: Tablebase; count: number; filter: 'any' | 'win' | 'draw' };
 export default function Home() {
@@ -137,15 +168,8 @@ export default function Home() {
     if (preparing.current || prepared.current) return;
     const task = new AbortController(); preparing.current = task;
     try {
-      for (let i = 0; i < 120 && !task.signal.aborted; i++) {
-        await delay(500, task.signal);
-        let candidate: string, tb: Tablebase;
-        try { candidate = randomPosition(count); tb = await probe(candidate, task.signal); }
-        catch { if (task.signal.aborted) return; await delay(5000, task.signal); continue; }
-        if (task.signal.aborted) return;
-        const next = acceptProblem(candidate, tb, filter);
-        if (next) { prepared.current = { problem: next, data: tb, count, filter }; return; }
-      }
+      const next = await findProblem(count, filter, task.signal);
+      if (!task.signal.aborted) prepared.current = { ...next, count, filter };
     } catch { /* Background preparation is optional and must not disturb the current exercise. */ }
     finally { if (preparing.current === task) preparing.current = null; }
   }
@@ -161,14 +185,12 @@ export default function Home() {
         current.current = ready.problem; initial.current = ready.problem.fen; game.current = new Chess(ready.problem.fen); reviewing.current = false; credited.current = false; redoStack.current = [];
         setProblem(ready.problem); setFen(ready.problem.fen); setPreviousFen(''); setHistory([]); setMistakes(0); setFlipped(false); setSerial(n => n + 1); setData(ready.data); setPhase('ready'); locked.current = false; return;
       }
-      for (let i = 1; i <= 60; i++) {
-        setAttempt(i); const candidate = randomPosition(count); const tb = await probe(candidate, signal); if (signal.aborted) return;
-        const p = acceptProblem(candidate, tb, filter); if (!p) { await delay(200, signal); continue; }
-    current.current = p; initial.current = p.fen; game.current = new Chess(p.fen); reviewing.current = false; credited.current = false; redoStack.current = [];
-        setProblem(p); setFen(p.fen); setPreviousFen(''); setHistory([]); setMistakes(0); setFlipped(false); setSerial(n => n + 1);
-        setData(tb); setPhase('ready'); locked.current = false; return;
-      }
-      throw new Error('条件に合う局面が見つかりませんでした。もう一度生成するか、目標を「どちらでも」にしてください。');
+      const next = await findProblem(count, filter, signal, setAttempt);
+      if (signal.aborted) return;
+      const p = next.problem;
+      current.current = p; initial.current = p.fen; game.current = new Chess(p.fen); reviewing.current = false; credited.current = false; redoStack.current = [];
+      setProblem(p); setFen(p.fen); setPreviousFen(''); setHistory([]); setMistakes(0); setFlipped(false); setSerial(n => n + 1);
+      setData(next.data); setPhase('ready'); locked.current = false;
     } catch (e) { report(e, signal); }
   }
   useEffect(() => {
