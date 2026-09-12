@@ -25,8 +25,9 @@ test('generator returns exact piece counts, safe kings, and valid pawn ranks',as
 });
 test('generated problems exclude losses, trivial decisions, and immediate mates',async()=>{
  const {acceptProblem}=await import('../lib/generator.ts');
- const d={category:'win',moves:[move('loss'),move('draw')]} as any;
+ const d={category:'win',moves:[move('loss'),{...move('draw'),uci:'e6d5'},{...move('draw'),uci:'e6f5'}]} as any;
  assert.equal(acceptProblem(exercises[0].fen,d,'win')?.goal,'win');
+ assert.equal(acceptProblem(exercises[0].fen,{...d,moves:d.moves.slice(0,2)},'win'),null);
  assert.equal(acceptProblem(exercises[0].fen,d,'draw'),null);
  assert.equal(acceptProblem(exercises[0].fen,{...d,category:'loss'},'any'),null);
  assert.equal(acceptProblem(exercises[0].fen,{...d,moves:[move('loss'),move('loss')]},'any'),null);
