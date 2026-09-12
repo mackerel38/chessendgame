@@ -24,5 +24,15 @@ export function acceptProblem(fen:string,data:Tablebase,filter:'any'|'win'|'draw
  // Require a real decision: at least one move maintains and one loses the objective.
  if(!data.moves.some(m=>preservesGoal(m,goal))||!data.moves.some(m=>outcome(m.category)!==null&&!preservesGoal(m,goal)))return null;
  if(data.moves.some(m=>m.checkmate))return null;
+ const safe = data.moves.filter(m=>preservesGoal(m,goal));
+ // Prefer positions where only a small fraction of moves preserve the result.
+ if(safe.length > 3 || safe.length / data.moves.length > 0.4)return null;
+ for(const move of safe){
+  const c = new Chess(fen);
+  const capture = c.move({from:move.uci.slice(0,2),to:move.uci.slice(2,4),...(move.uci[4]?{promotion:move.uci[4]}:{})});
+  if(!capture.captured)continue;
+  // Any legal immediate capture can provide material compensation, including en passant.
+  if(!c.moves({verbose:true}).some(reply=>!!reply.captured))return null;
+ }
  return {fen,goal,pieces:new Chess(fen).board().flat().filter(Boolean).length};
 }

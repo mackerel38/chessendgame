@@ -41,6 +41,8 @@ export default function Home() {
   const [moveMark, setMoveMark] = useState<MoveMark | null>(null);
   const [pieceSet, setCurrentPieceSet] = useState<PieceSet>('cburnett');
   const [autoNext, setAutoNext] = useState(false), [autoNextReady, setAutoNextReady] = useState(false);
+  const [boardTheme, setBoardTheme] = useState<'lichess' | 'chesscom'>('lichess');
+  const [premove, setPremove] = useState<{ from: string; to: string } | null>(null);
   const [drawComplete, setDrawComplete] = useState(false);
   const game = useRef(new Chess(EMPTY)), current = useRef<Problem | null>(null), controller = useRef(new AbortController()), animationId = useRef(0), locked = useRef(true), pauseRef = useRef(false), speedRef = useRef(800), replaying = useRef(false), beforeReplay = useRef<Tablebase | null>(null), failureAction = useRef<'generate' | 'sync'>('generate'), redoStack = useRef<string[][]>([]);
   const initial = useRef(EMPTY), reviewing = useRef(false), credited = useRef(false), prepared = useRef<PreparedProblem | null>(null), preparing = useRef<AbortController | null>(null);
@@ -50,7 +52,9 @@ export default function Home() {
   const player = (problem?.fen.split(' ')[1] || initial.current.split(' ')[1]) as 'w' | 'b';
   const blackBottom = (player === 'b') !== flipped;
   const tactics = useMemo(() => showTactics ? analyzeTactics(fen, previousFen || undefined) : null, [fen, previousFen, showTactics]);
+  const canPremove = phase === 'thinking' && !!problem && !reviewing.current;
   function cancel() {
+    setPremove(null);
     controller.current.abort(); controller.current = new AbortController();
     setAnimation(null); setPromotion([]); setSelected(''); setHint(''); setMoveMark(null); setDrawComplete(false); setAutoNextReady(false); pauseRef.current = false; setPaused(false); replaying.current = false;
     return controller.current.signal;
@@ -93,7 +97,7 @@ export default function Home() {
   }
   function endGame(c: Chess, p: Problem) {
     const end = terminal(c, p.fen.split(' ')[1] as 'w' | 'b', p.goal); if (!end) return false;
-    setPhase('done'); setFeedback(end.text); setData(null); locked.current = true; setDrawComplete(end.success && p.goal === 'draw'); if (end.success) setAutoNextReady(true);
+    setPremove(null); setSelected(''); setPhase('done'); setFeedback(end.text); setData(null); locked.current = true; setDrawComplete(end.success && p.goal === 'draw'); if (end.success) setAutoNextReady(true);
     if (end.success && !credited.current) {
       credited.current = true;
       setSolved(v => { const n = v + 1; try { localStorage.setItem('endgame-generated-solved', String(n)); } catch {} return n; });
@@ -172,6 +176,7 @@ export default function Home() {
       const n = Number(localStorage.getItem('endgame-generated-solved')); if (Number.isSafeInteger(n) && n >= 0) setSolved(n);
       setShowTactics(localStorage.getItem('endgame-show-tactics') !== 'false');
       setCurrentPieceSet(getPieceSet());
+      setBoardTheme(localStorage.getItem('endgame-board-theme') === 'chesscom' ? 'chesscom' : 'lichess');
       setAutoNext(localStorage.getItem('endgame-auto-next') === 'true');
     } catch {}
     const readUrl = () => {
@@ -248,12 +253,31 @@ export default function Home() {
       await sync(game.current, p, signal);
     } catch (e) { report(e, signal); }
   }
+  useEffect(() => {
+    if (phase !== 'ready' || !premove || !data) return;
+    const reserved = premove; setPremove(null); setSelected('');
+    const options = data.moves.filter(m => m.uci.slice(0, 2) === reserved.from && m.uci.slice(2, 4) === reserved.to);
+    const move = options.find(m => m.uci[4] === 'q') || options[0];
+    if (move && !locked.current) void play(move);
+  }, [phase, data, premove]);
   function moveFrom(from: string, to: string) {
+    if (canPremove) {
+      if (game.current.get(from as Parameters<Chess['get']>[0])?.color === player && from !== to) {
+        setPremove({ from, to }); setSelected('');
+      }
+      return;
+    }
     if (locked.current) return;
     const options = data?.moves.filter(m => m.uci.slice(0, 2) === from && m.uci.slice(2, 4) === to) || [];
     if (options.length > 1) setPromotion(options); else if (options[0]) void play(options[0]);
   }
   function clickSquare(s: string) {
+    if (canPremove) {
+      if (premove) { setPremove(null); setSelected(''); return; }
+      if (selected && selected !== s) { moveFrom(selected, s); return; }
+      setSelected(selected === s ? '' : game.current.get(s as Parameters<Chess['get']>[0])?.color === player ? s : '');
+      return;
+    }
     if (locked.current) return;
     if (s === selected) { setSelected(''); return; }
     if (data?.moves.some(m => m.uci.slice(0, 2) === selected && m.uci.slice(2, 4) === s)) { moveFrom(selected, s); return; }
@@ -330,7 +354,7 @@ export default function Home() {
   });
   return <main><header><a className="brand" href="./"><Piece code="bp" /><span>ENDGAME<span className="brand-light"> / 終盤道場</span></span></a><span className="header-note">CHESS ENDGAME TRAINER</span><button className="status-pill" onClick={() => setHelp(true)}>操作ガイド ↗</button></header>
     <div className="workspace"><div className="play-layout"><section><div className="player-line"><span className="avatar"><Piece code={player === 'w' ? 'bk' : 'wk'} /></span><div><strong>テーブルベース / {player === 'w' ? '黒' : '白'}</strong>{phase === 'thinking' && <small>思考中...</small>}</div></div>
-        <Board key={serial} fen={fen} blackBottom={blackBottom} disabled={phase !== 'ready'} selected={selected} legal={phase === 'ready' ? legal : []} hint={hint} animation={animation} tactics={tactics} moveMark={moveMark} drawMark={drawComplete} lastMove={lastMove} onSquare={clickSquare} onMove={moveFrom} onSelect={s => { if (game.current.get(s as Parameters<Chess['get']>[0])?.color === player) setSelected(s); }} />
+        <Board key={serial} fen={fen} blackBottom={blackBottom} disabled={phase !== 'ready' && !canPremove} theme={boardTheme} premove={premove} selected={selected} legal={phase === 'ready' ? legal : []} hint={hint} animation={animation} tactics={tactics} moveMark={moveMark} drawMark={drawComplete} lastMove={lastMove} onSquare={clickSquare} onMove={moveFrom} onSelect={s => { if (game.current.get(s as Parameters<Chess['get']>[0])?.color === player) setSelected(s); }} />
         <div className="player-line"><span className="avatar white-avatar"><Piece code={player + 'k'} /></span><div><strong>あなた / {player === 'w' ? '白' : '黒'}</strong><small>{phase === 'review' ? '棋譜・盤面を閲覧中（自動応手なし）' : phase === 'replay' ? (replayMode === 'answer' ? '答えの最善進行を再生中' : '失敗手の最善進行を再生中') : phase === 'ready' ? (problem?.goal === 'draw' ? '引き分けを目指してください' : '勝ちを目指してください') : phase === 'generating' ? `局面を生成中 · ${attempt} 局面を照合` : phase === 'done' ? '練習終了' : phase === 'error' ? '接続待ち' : ''}</small></div><span className="your-turn">● {phase === 'ready' ? 'YOUR TURN' : phase === 'replay' ? 'REPLAY' : phase === 'review' ? 'REVIEW' : phase === 'done' ? 'FINISHED' : 'WAIT'}</span></div>
         <div className="board-tools"><button onClick={() => restart()} disabled={phase === 'generating' || (!problem && !reviewing.current)}>↶ 最初から</button><button onClick={rewind} disabled={phase === 'generating' || (!history.length && phase !== 'replay')}>← 戻る</button><button onClick={advance} disabled={phase === 'generating' || (phase === 'review' ? game.current.history().length >= history.length : !redoStack.current.length)}>進む →</button><button onClick={() => setFlipped(v => !v)} disabled={!!animation}>⇅ 盤面を反転</button><span>{history.filter(h => h.player).length} 手 / ミス {mistakes} 回</span></div>
         {error || feedback ? <div className={`feedback ${phase === 'replay' ? 'bad' : ''}`} role="status" aria-live="polite">{error ? <><span>{error}</span><button onClick={retry}>再試行</button></> : feedback}</div> : null}
@@ -338,7 +362,7 @@ export default function Home() {
           <div className="generator-controls"><label>駒数（キングを含む）<select value={count} onChange={e => setCount(Number(e.target.value))}>{[3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n} 駒</option>)}</select></label><label>目標<select value={filter} onChange={e => setFilter(e.target.value as typeof filter)}><option value="any">どちらでも</option><option value="win">勝ち</option><option value="draw">引き分け</option></select></label></div>
           <button className="primary" onClick={() => void generate()}>新しい局面を生成 <span>↻</span></button>{phase === 'generating' && <p className="verified">{attempt} 局面目を照合中 · もう一度押すと生成を再開</p>}
           <div className="auto-next-setting"><label><input type="checkbox" checked={autoNext} onChange={e => { const enabled = e.target.checked; setAutoNext(enabled); try { localStorage.setItem('endgame-auto-next', String(enabled)); } catch {} }} /> 自動で次の問題に進む</label></div>
-          <div className="tactic-settings"><label><input type="checkbox" checked={showTactics} onChange={e => { setShowTactics(e.target.checked); try { localStorage.setItem('endgame-show-tactics', String(e.target.checked)); } catch {} }} />戦術の自動矢印を表示</label>{showTactics && tactics?.labels.length ? <p className="tactic-description" role="status">{tactics.labels.join(' / ')}</p> : null}<div className="piece-settings"><label>駒<select value={pieceSet} onChange={e => { const next = e.target.value as PieceSet; setCurrentPieceSet(next); setPieceSet(next); }}>{PIECE_SETS.map(option => <option key={option.id} value={option.id}>{option.label} · {option.source}</option>)}</select></label></div></div>
+          <div className="tactic-settings"><label><input type="checkbox" checked={showTactics} onChange={e => { setShowTactics(e.target.checked); try { localStorage.setItem('endgame-show-tactics', String(e.target.checked)); } catch {} }} />戦術の自動矢印を表示</label>{showTactics && tactics?.labels.length ? <p className="tactic-description" role="status">{tactics.labels.join(' / ')}</p> : null}<div className="piece-settings"><label>盤の色<select value={boardTheme} onChange={e => { const next = e.target.value as 'lichess' | 'chesscom'; setBoardTheme(next); try { localStorage.setItem('endgame-board-theme', next); } catch {} }}><option value="lichess">Lichess</option><option value="chesscom">Chess.com</option></select></label><label>駒<select value={pieceSet} onChange={e => { const next = e.target.value as PieceSet; setCurrentPieceSet(next); setPieceSet(next); }}>{PIECE_SETS.map(option => <option key={option.id} value={option.id}>{option.label} · {option.source}</option>)}</select></label></div></div>
           {phase === 'review' && <button className="hint-button" onClick={() => void trainPosition()}>この盤面を練習（3〜7駒）</button>}
           {problem && <div className={`objective ${problem.goal === 'draw' ? 'draw-objective' : ''}`}><span>{problem.goal === 'win' ? '↗' : '='}</span><div><small>現在の目標</small><strong>{problem.goal === 'win' ? '勝つ' : '引き分けを保つ'}</strong></div><span className="tag">{problem.goal.toUpperCase()}</span></div>}
           <button className="hint-button" disabled={phase !== 'ready'} onClick={() => { const best = data?.moves.find(m => problem && preservesGoal(m, problem.goal)); if (best) { setHint(best.uci); setSelected(best.uci.slice(0, 2)); } }}>{hint ? `${hint.slice(0, 2)} → ${hint.slice(2, 4)}${hint[4] ? ' = ' + names[hint[4]] : ''}` : '✧ 最善手のヒント'}</button><button className="hint-button" disabled={phase !== 'ready'} onClick={() => { const best = data?.moves.find(m => problem && preservesGoal(m, problem.goal)); if (best && problem && data && !locked.current) void replay(best, problem, data, true); }}>▶ 答えを最後まで再生</button>{!problem && <p className="verified">{reviewing.current ? '閲覧モード：評価は未取得' : '局面を検証しています'}</p>}</section>

@@ -1,4 +1,11 @@
 /* Fixed SVG images replace every platform-dependent chess glyph. */
+.board.theme-lichess .light{background:#f0d9b5}.board.theme-lichess .dark{background:#b58863}
+.board.theme-chesscom .light{background:#eeeed2}.board.theme-chesscom .dark{background:#769656}
+.board.theme-lichess .light.last-move{background:#f7ec91}.board.theme-lichess .dark.last-move{background:#c9ba6b}
+.board.theme-chesscom .light.last-move{background:#f6f5a1}.board.theme-chesscom .dark.last-move{background:#bbcb6b}
+.board.interactive-board .square.selected{background:#d8c372}.board.interactive-board .square.premove-square{background:#9cadd0}
+.board.theme-lichess .rank,.board.theme-lichess .file{color:#805c40}.board.theme-lichess .dark .rank,.board.theme-lichess .dark .file{color:#f0d9b5}
+.piece-settings label+label{margin-top:16px}
 .square.light.last-move{background:#f4f2b5}.square.dark.last-move{background:#b3bd78}.square.last-move.selected{background:#d8c372}
 .moves-panel .move-head,.moves-panel .move-list li{grid-template-columns:30px minmax(0,1fr) 32px minmax(0,1fr)}
 .resume-move{border:0;border-radius:4px;background:none;color:#356748;min-height:32px;padding:4px}.resume-move:hover{background:#edf3e8}
